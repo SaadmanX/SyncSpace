@@ -40,7 +40,7 @@ public class WhiteboardClient {
     }
 
     private void initializeUI() {
-        frame = new JFrame("SyncSpace Whiteboard");
+        frame = new JFrame("SyncSpace");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setSize(1000, 600);
         frame.setLayout(new BorderLayout());
