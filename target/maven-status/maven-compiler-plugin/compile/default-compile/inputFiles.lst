@@ -1,0 +1,16 @@
+/Users/smitster1403/Desktop/559 /syncspace-collaborative-whiteboard/src/main/java/com/syncspace/common/VoiceChatPacket.java
+/Users/smitster1403/Desktop/559 /syncspace-collaborative-whiteboard/src/main/java/com/syncspace/server/WhiteboardSession.java
+/Users/smitster1403/Desktop/559 /syncspace-collaborative-whiteboard/src/main/java/com/syncspace/client/ui/WhiteboardPanel.java
+/Users/smitster1403/Desktop/559 /syncspace-collaborative-whiteboard/src/main/java/com/syncspace/client/WhiteboardClient.java
+/Users/smitster1403/Desktop/559 /syncspace-collaborative-whiteboard/src/main/java/com/syncspace/util/SynchronizationUtils.java
+/Users/smitster1403/Desktop/559 /syncspace-collaborative-whiteboard/src/main/java/com/syncspace/common/Message.java
+/Users/smitster1403/Desktop/559 /syncspace-collaborative-whiteboard/src/main/java/com/syncspace/client/Client.java
+/Users/smitster1403/Desktop/559 /syncspace-collaborative-whiteboard/src/main/java/com/syncspace/common/User.java
+/Users/smitster1403/Desktop/559 /syncspace-collaborative-whiteboard/src/main/java/com/syncspace/server/ClientHandler.java
+/Users/smitster1403/Desktop/559 /syncspace-collaborative-whiteboard/src/main/java/com/syncspace/client/ui/ChatPanel.java
+/Users/smitster1403/Desktop/559 /syncspace-collaborative-whiteboard/src/main/java/com/syncspace/server/UserManager.java
+/Users/smitster1403/Desktop/559 /syncspace-collaborative-whiteboard/src/main/java/com/syncspace/common/WhiteboardAction.java
+/Users/smitster1403/Desktop/559 /syncspace-collaborative-whiteboard/src/main/java/com/syncspace/server/replication/ReplicationManager.java
+/Users/smitster1403/Desktop/559 /syncspace-collaborative-whiteboard/src/main/java/com/syncspace/server/replication/LeaderElection.java
+/Users/smitster1403/Desktop/559 /syncspace-collaborative-whiteboard/src/main/java/com/syncspace/util/NetworkUtils.java
+/Users/smitster1403/Desktop/559 /syncspace-collaborative-whiteboard/src/main/java/com/syncspace/server/Server.java
