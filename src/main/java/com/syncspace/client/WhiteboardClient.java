@@ -23,6 +23,7 @@ public class WhiteboardClient {
 
     public WhiteboardClient(String serverAddress, int serverPort) {
         try {
+            // 10.0.0.54
             socket = new Socket(serverAddress, serverPort);
             // Important: Create output stream first, then flush it immediately
             outputStream = new ObjectOutputStream(socket.getOutputStream());
@@ -251,7 +252,17 @@ public class WhiteboardClient {
                 "Enter your username:", "SyncSpace Login", JOptionPane.QUESTION_MESSAGE);
             
             if (username != null && !username.trim().isEmpty()) {
-                WhiteboardClient client = new WhiteboardClient("localhost", 12345);
+                String serverAddress = JOptionPane.showInputDialog(
+                    null, 
+                    "Enter server address:", 
+                    "SyncSpace Connection", 
+                    JOptionPane.QUESTION_MESSAGE);
+                
+                if (serverAddress == null || serverAddress.trim().isEmpty()) {
+                    serverAddress = "localhost"; // Default for local testing
+                }
+                
+                WhiteboardClient client = new WhiteboardClient(serverAddress, 12345);
                 client.registerUser(username);
             } else {
                 System.exit(0);
