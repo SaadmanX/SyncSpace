@@ -52,9 +52,9 @@ if [ "$MODE" == "local" ]; then
 elif [ "$MODE" == "distributed" ]; then
     # Distributed mode - Servers on different hosts
     # Update these values with your actual server hostnames or IP addresses
-    SERVER1_HOST="10.59.174.194" # Update with actual IP
-    SERVER2_HOST="10.59.174.193" # Update with actual IP
-    SERVER3_HOST="10.59.174.195" # Update with actual IP
+    SERVER1_HOST="10.13.148.125" # Update with actual IP
+    SERVER2_HOST="10.13.130.185" # Update with actual IP
+    SERVER3_HOST="10.13.156.4" # Update with actual IP
     
     echo "Starting servers in distributed mode (on different hosts)"
     echo "Note: You need to run this script on each host with appropriate parameters"

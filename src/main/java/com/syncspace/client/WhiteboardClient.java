@@ -404,9 +404,9 @@ public class WhiteboardClient {
                 // serverAddresses.add("localhost:12347"); // Backup server 2
                 
                 // For a real distributed setup, replace with actual server IPs
-                serverAddresses.add("10.59.174.194:12345");
-                serverAddresses.add("10.59.174.193:12345");
-                serverAddresses.add("10.59.174.195:12345");
+                serverAddresses.add("10.13.148.125:12345");
+                serverAddresses.add("10.13.130.185:12345");
+                serverAddresses.add("10.13.156.4:12345");
                 
                 new WhiteboardClient(serverAddresses, username);
             } else {
