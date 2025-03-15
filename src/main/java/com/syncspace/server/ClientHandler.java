@@ -16,6 +16,7 @@ public class ClientHandler extends Thread {
     private ObjectOutputStream outputStream;
     private String username;
     private Server server;
+    private boolean running = true;
 
     public ClientHandler(Socket socket, UserManager userManager, WhiteboardSession whiteboardSession, Server server) {
         this.socket = socket;
@@ -37,7 +38,7 @@ public class ClientHandler extends Thread {
             handleUserRegistration();
             
             // Listen for client messages
-            while (true) {
+            while (running) {
                 try {
                     Object input = inputStream.readObject();
                     if (input instanceof Message) {
@@ -52,24 +53,33 @@ public class ClientHandler extends Thread {
             System.err.println("Client disconnected: " + e.getMessage());
         } finally {
             // Clean up when client disconnects
-            if (username != null) {
-                userManager.removeUser(username);
-                System.out.println("User " + username + " disconnected");
-                
-                // Notify other clients that this user has left
-                Message leaveMessage = new Message(Message.MessageType.USER_LEAVE, 
-                    "has left the whiteboard session", username);
-                broadcastToAll(leaveMessage);
-            }
-            try {
-                if (inputStream != null) inputStream.close();
-                if (outputStream != null) outputStream.close();
-                if (socket != null) socket.close();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-            server.removeClient(this);
+            cleanup();
         }
+    }
+    
+    public void shutdown() {
+        running = false;
+        cleanup();
+    }
+    
+    private void cleanup() {
+        if (username != null) {
+            userManager.removeUser(username);
+            System.out.println("User " + username + " disconnected");
+            
+            // Notify other clients that this user has left
+            Message leaveMessage = new Message(Message.MessageType.USER_LEAVE, 
+                "has left the whiteboard session", username);
+            broadcastToAll(leaveMessage);
+        }
+        try {
+            if (inputStream != null) inputStream.close();
+            if (outputStream != null) outputStream.close();
+            if (socket != null) socket.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        server.removeClient(this);
     }
 
     private void handleUserRegistration() throws IOException {
@@ -86,15 +96,33 @@ public class ClientHandler extends Thread {
                     whiteboardSession.addUser(new User(username, username));
                     System.out.println("User " + username + " connected");
                     
+                    // Replicate this user joining to other servers
+                    String key = "user.join." + username + "." + System.currentTimeMillis();
+                    server.getReplicationManager().replicateData(key, new User(username, username));
+                    
                     // Broadcast to all clients that a new user has joined
                     Message joinMessage = new Message(Message.MessageType.USER_JOIN, 
                                                    "has joined the whiteboard session", username);
                     broadcastToAll(joinMessage);
+                    
+                    // Send current state to the new client
+                    sendInitialState();
                 }
             }
         } catch (ClassNotFoundException e) {
             System.err.println("Error during user registration: " + e.getMessage());
         }
+    }
+    
+    private void sendInitialState() {
+        // Get state from replication manager and send it to client
+        // This ensures the client gets the latest state even after reconnecting to a different server
+        
+        // Send a welcome message with server info
+        String serverInfo = "Connected to " + (server.isLeaderServer() ? "leader" : "follower") + " server";
+        Message welcomeMessage = new Message(Message.MessageType.TEXT, 
+                                           serverInfo, "SYSTEM");
+        sendMessage(welcomeMessage);
     }
 
     private void handleMessage(Message message) {
@@ -129,5 +157,9 @@ public class ClientHandler extends Thread {
     
     private void broadcastToAll(Message message) {
         server.broadcastToAll(message, this);
+    }
+    
+    public String getUsername() {
+        return username;
     }
 }
