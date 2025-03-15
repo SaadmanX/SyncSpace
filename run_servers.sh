@@ -29,5 +29,5 @@ wait
 
 # This section runs when the user presses Ctrl+C
 echo "Shutting down servers..."
-kill $SERVER1_PID $SERVER2_PID $SERVER3_PID
+kill $SERVER1_PID $SERVER2_PID $SERVER3_PID 2>/dev/null || true
 echo "Servers shut down."

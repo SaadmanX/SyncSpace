@@ -19,7 +19,7 @@ public class ReplicationManager {
     private final ConcurrentHashMap<String, Object> stateStore;
     private final String serverAddress;
     private final int serverPort;
-    private final int replicationPort;
+    private int replicationPort;
     private boolean isLeader = false;
     private ServerSocket replicationServerSocket;
     private Thread replicationServerThread;
@@ -34,30 +34,62 @@ public class ReplicationManager {
     }
 
     public void start() {
-        // Start the replication server thread
-        startReplicationServer();
-        
-        // Initialize leader election
-        leaderElection = new LeaderElection(getServerList());
-        
-        // Try to connect to existing servers
-        connectToExistingServers();
+        try {
+            // Start the replication server thread
+            startReplicationServer();
+            
+            // Initialize leader election
+            leaderElection = new LeaderElection(getServerList());
+            
+            // Try to connect to existing servers
+            connectToExistingServers();
+        } catch (Exception e) {
+            logger.severe("Error starting replication manager: " + e.getMessage());
+        }
     }
-    
+
+    // Add this method to ReplicationManager.java
+    private boolean isPortInUse(int port) {
+        try (Socket socket = new Socket("localhost", port)) {
+            // If we can connect, port is in use
+            return true;
+        } catch (IOException e) {
+            // Connection refused, port is available
+            return false;
+        }
+    }
+        
     private void startReplicationServer() {
         try {
+            // Check if port is already in use before attempting to bind
+            if (isPortInUse(replicationPort)) {
+                logger.warning("Port " + replicationPort + " is already in use, trying alternative port");
+                tryAlternativePort();
+                return;
+            }
+
+            // Try to close any existing socket before creating a new one
+            if (replicationServerSocket != null && !replicationServerSocket.isClosed()) {
+                try {
+                    replicationServerSocket.close();
+                } catch (IOException e) {
+                    // Ignore close errors
+                }
+            }
+            
             replicationServerSocket = new ServerSocket(replicationPort);
             logger.info("Replication server started on port " + replicationPort);
             
             replicationServerThread = new Thread(() -> {
-                while (!replicationServerSocket.isClosed()) {
+                while (!Thread.currentThread().isInterrupted() && !replicationServerSocket.isClosed()) {
                     try {
                         Socket socket = replicationServerSocket.accept();
                         handleReplicationConnection(socket);
                     } catch (IOException e) {
-                        if (!replicationServerSocket.isClosed()) {
+                        if (!replicationServerSocket.isClosed() && !Thread.currentThread().isInterrupted()) {
                             logger.severe("Error accepting replication connection: " + e.getMessage());
                         }
+                        break;
                     }
                 }
             });
@@ -65,6 +97,54 @@ public class ReplicationManager {
             replicationServerThread.start();
         } catch (IOException e) {
             logger.severe("Could not start replication server: " + e.getMessage());
+            // Try an alternative port if this one is in use
+            tryAlternativePort();
+        }
+    }
+
+    private void tryAlternativePort() {
+        try {
+            // Try to find an available port
+            int alternativePort = replicationPort + 100;
+            int maxAttempts = 5;
+            int attempts = 0;
+            
+            while (attempts < maxAttempts) {
+                if (!isPortInUse(alternativePort)) {
+                    break;
+                }
+                alternativePort += 10;
+                attempts++;
+            }
+            
+            if (attempts >= maxAttempts) {
+                logger.severe("Could not find an available port after " + maxAttempts + " attempts");
+                return;
+            }
+            
+            logger.info("Using alternative port: " + alternativePort);
+            replicationPort = alternativePort;
+            replicationServerSocket = new ServerSocket(replicationPort);
+            logger.info("Replication server started on alternative port " + replicationPort);
+            
+            // Same thread code as above
+            replicationServerThread = new Thread(() -> {
+                while (!Thread.currentThread().isInterrupted() && !replicationServerSocket.isClosed()) {
+                    try {
+                        Socket socket = replicationServerSocket.accept();
+                        handleReplicationConnection(socket);
+                    } catch (IOException e) {
+                        if (!replicationServerSocket.isClosed() && !Thread.currentThread().isInterrupted()) {
+                            logger.severe("Error accepting replication connection: " + e.getMessage());
+                        }
+                        break;
+                    }
+                }
+            });
+            replicationServerThread.setDaemon(true);
+            replicationServerThread.start();
+        } catch (IOException e) {
+            logger.severe("Could not start replication server on alternative port: " + e.getMessage());
         }
     }
     
@@ -429,6 +509,12 @@ public class ReplicationManager {
     
     public void shutdown() {
         try {
+            // Interrupt the replication server thread
+            if (replicationServerThread != null) {
+                replicationServerThread.interrupt();
+            }
+            
+            // Close the replication server socket
             if (replicationServerSocket != null && !replicationServerSocket.isClosed()) {
                 replicationServerSocket.close();
             }
@@ -441,6 +527,8 @@ public class ReplicationManager {
             for (ServerInstance follower : followers) {
                 follower.close();
             }
+            
+            logger.info("Replication manager shutdown complete");
         } catch (IOException e) {
             logger.severe("Error during shutdown: " + e.getMessage());
         }
