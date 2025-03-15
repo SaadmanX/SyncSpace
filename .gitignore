@@ -1,0 +1,8 @@
+# Ignore everything
+*
+# Example to keep all .java files:
+!*.java
+!*.pdf
+!*.xml
+!*.md
+
