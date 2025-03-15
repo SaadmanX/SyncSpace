@@ -11,6 +11,9 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
+import java.net.ConnectException;
+import java.util.ArrayList;
+import java.util.List;
 
 public class WhiteboardClient {
     private Socket socket;
@@ -20,23 +23,116 @@ public class WhiteboardClient {
     private WhiteboardPanel whiteboardPanel;
     private ChatPanel chatPanel;
     private String username;
+    private List<String> serverAddresses;
+    private int currentServerIndex = 0;
+    private boolean reconnecting = false;
+    private JLabel connectionStatusLabel;
 
-    public WhiteboardClient(String serverAddress, int serverPort) {
+    public WhiteboardClient(List<String> serverAddresses, String username) {
+        this.serverAddresses = new ArrayList<>(serverAddresses);
+        this.username = username;
+        
+        initializeUI();
+        connectToServer();
+    }
+    
+    private void connectToServer() {
+        if (serverAddresses.isEmpty()) {
+            showError("No server addresses provided.");
+            System.exit(1);
+            return;
+        }
+        
+        // Try to connect to the current server
+        String currentServer = serverAddresses.get(currentServerIndex);
+        String[] parts = currentServer.split(":");
+        if (parts.length != 2) {
+            showError("Invalid server address format: " + currentServer);
+            return;
+        }
+        
+        String host = parts[0];
+        int port;
         try {
-            // 10.0.0.54
-            socket = new Socket(serverAddress, serverPort);
+            port = Integer.parseInt(parts[1]);
+        } catch (NumberFormatException e) {
+            showError("Invalid port number: " + parts[1]);
+            return;
+        }
+        
+        try {
+            updateConnectionStatus("Connecting to " + host + ":" + port + "...");
+            
+            // Close existing connection if any
+            if (socket != null && !socket.isClosed()) {
+                try {
+                    socket.close();
+                } catch (IOException e) {
+                    // Ignore
+                }
+            }
+            
+            socket = new Socket(host, port);
+            
             // Important: Create output stream first, then flush it immediately
             outputStream = new ObjectOutputStream(socket.getOutputStream());
             outputStream.flush();
             // Then create input stream
             inputStream = new ObjectInputStream(socket.getInputStream());
             
-            initializeUI();
+            // Setup event handlers
             setupEventHandlers();
+            
+            // Register with the server
+            registerUser(username);
+            
+            updateConnectionStatus("Connected to " + host + ":" + port);
+            reconnecting = false;
+            
+        } catch (ConnectException e) {
+            System.err.println("Failed to connect to " + host + ":" + port + ": " + e.getMessage());
+            
+            // Try the next server
+            tryNextServer();
         } catch (IOException e) {
-            JOptionPane.showMessageDialog(null, "Could not connect to server: " + e.getMessage(), 
-                                         "Connection Error", JOptionPane.ERROR_MESSAGE);
-            System.exit(1);
+            showError("Could not connect to server: " + e.getMessage());
+            
+            // Try the next server
+            tryNextServer();
+        }
+    }
+    
+    private void tryNextServer() {
+        currentServerIndex = (currentServerIndex + 1) % serverAddresses.size();
+        
+        if (!reconnecting) {
+            reconnecting = true;
+            
+            // Try to reconnect after a delay
+            new Thread(() -> {
+                try {
+                    updateConnectionStatus("Connection failed. Trying next server in 3 seconds...");
+                    Thread.sleep(3000);
+                    connectToServer();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }).start();
+        } else {
+            // If we've tried all servers, show an error
+            if (currentServerIndex == 0) {
+                updateConnectionStatus("Failed to connect to any server. Retrying...");
+            }
+            
+            // Try again after a delay
+            new Thread(() -> {
+                try {
+                    Thread.sleep(5000);
+                    connectToServer();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }).start();
         }
     }
 
@@ -46,6 +142,12 @@ public class WhiteboardClient {
         frame.setSize(1000, 600);
         frame.setLayout(new BorderLayout());
 
+        // Create status panel
+        JPanel statusPanel = new JPanel(new BorderLayout());
+        connectionStatusLabel = new JLabel("Not connected");
+        connectionStatusLabel.setBorder(BorderFactory.createEmptyBorder(2, 5, 2, 5));
+        statusPanel.add(connectionStatusLabel, BorderLayout.WEST);
+        
         // Create toolbar with drawing options
         JToolBar toolBar = new JToolBar();
         JButton clearBtn = new JButton("Clear");
@@ -54,11 +156,35 @@ public class WhiteboardClient {
             sendClearAction();
         });
         toolBar.add(clearBtn);
+        
+        // Add color selector
+        JButton colorBtn = new JButton("Color");
+        colorBtn.addActionListener(e -> {
+            Color newColor = JColorChooser.showDialog(
+                frame, "Choose Drawing Color", whiteboardPanel.getCurrentColor());
+            if (newColor != null) {
+                whiteboardPanel.setColor(newColor);
+            }
+        });
+        toolBar.add(colorBtn);
+        
+        // Add line thickness selector
+        String[] thicknesses = {"1", "2", "3", "5", "8"};
+        JComboBox<String> thicknessCombo = new JComboBox<>(thicknesses);
+        thicknessCombo.setSelectedIndex(1); // Default to 2
+        thicknessCombo.addActionListener(e -> {
+            int thickness = Integer.parseInt((String)thicknessCombo.getSelectedItem());
+            whiteboardPanel.setStrokeSize(thickness);
+        });
+        toolBar.add(new JLabel(" Thickness: "));
+        toolBar.add(thicknessCombo);
+        
+        frame.add(statusPanel, BorderLayout.SOUTH);
         frame.add(toolBar, BorderLayout.NORTH);
 
         // Create whiteboard panel (main drawing area)
         whiteboardPanel = new WhiteboardPanel();
-        frame.add(whiteboardPanel, BorderLayout.CENTER);
+        frame.add(new JScrollPane(whiteboardPanel), BorderLayout.CENTER);
 
         // Create chat panel
         chatPanel = new ChatPanel();
@@ -66,6 +192,12 @@ public class WhiteboardClient {
         frame.add(chatPanel, BorderLayout.EAST);
 
         frame.setVisible(true);
+    }
+    
+    private void updateConnectionStatus(String status) {
+        SwingUtilities.invokeLater(() -> {
+            connectionStatusLabel.setText(status);
+        });
     }
 
     private void setupEventHandlers() {
@@ -118,7 +250,7 @@ public class WhiteboardClient {
         });
         inputPanel.add(sendButton, BorderLayout.EAST);
         
-        frame.add(inputPanel, BorderLayout.SOUTH);
+        chatPanel.add(inputPanel, BorderLayout.SOUTH);
     }
 
     private void sendMessage(String message) {
@@ -129,6 +261,7 @@ public class WhiteboardClient {
         } catch (IOException e) {
             e.printStackTrace();
             showError("Error sending message: " + e.getMessage());
+            handleDisconnect();
         }
     }
 
@@ -139,6 +272,7 @@ public class WhiteboardClient {
         } catch (IOException e) {
             e.printStackTrace();
             showError("Error sending draw action: " + e.getMessage());
+            handleDisconnect();
         }
     }
 
@@ -149,12 +283,18 @@ public class WhiteboardClient {
         } catch (IOException e) {
             e.printStackTrace();
             showError("Error sending clear action: " + e.getMessage());
+            handleDisconnect();
         }
+    }
+    
+    private void handleDisconnect() {
+        updateConnectionStatus("Disconnected. Attempting to reconnect...");
+        tryNextServer();
     }
 
     private void startListeningForMessages() {
         new Thread(() -> {
-            while (true) {
+            while (socket != null && !socket.isClosed()) {
                 try {
                     Object input = inputStream.readObject();
                     if (input instanceof Message) {
@@ -171,10 +311,13 @@ public class WhiteboardClient {
                             System.exit(0);
                         }
                     }
-                } catch (IOException | ClassNotFoundException e) {
-                    e.printStackTrace();
-                    showError("Connection to server lost: " + e.getMessage());
+                } catch (IOException e) {
+                    System.err.println("Connection to server lost: " + e.getMessage());
+                    handleDisconnect();
                     break;
+                } catch (ClassNotFoundException e) {
+                    e.printStackTrace();
+                    showError("Error processing server message: " + e.getMessage());
                 }
             }
         }).start();
@@ -199,6 +342,9 @@ public class WhiteboardClient {
                     break;
                 case USER_LEAVE:
                     chatPanel.receiveMessage("*** " + message.getSenderId() + " has left ***");
+                    break;
+                case LEADER_ANNOUNCEMENT:
+                    chatPanel.receiveMessage("*** Server leadership changed: " + message.getContent() + " ***");
                     break;
                 default:
                     break;
@@ -226,7 +372,6 @@ public class WhiteboardClient {
 
     // Method to register with the server
     private void registerUser(String username) {
-        this.username = username;
         try {
             outputStream.writeObject(username);
             outputStream.flush();
@@ -236,7 +381,7 @@ public class WhiteboardClient {
         } catch (IOException e) {
             e.printStackTrace();
             showError("Error registering user: " + e.getMessage());
-            System.exit(1);
+            handleDisconnect();
         }
     }
 
@@ -252,18 +397,18 @@ public class WhiteboardClient {
                 "Enter your username:", "SyncSpace Login", JOptionPane.QUESTION_MESSAGE);
             
             if (username != null && !username.trim().isEmpty()) {
-                String serverAddress = JOptionPane.showInputDialog(
-                    null, 
-                    "Enter server address:", 
-                    "SyncSpace Connection", 
-                    JOptionPane.QUESTION_MESSAGE);
+                // Default server list - can be updated to read from config
+                List<String> serverAddresses = new ArrayList<>();
+                // serverAddresses.add("localhost:12345"); // Primary server
+                // serverAddresses.add("localhost:12346"); // Backup server 1
+                // serverAddresses.add("localhost:12347"); // Backup server 2
                 
-                if (serverAddress == null || serverAddress.trim().isEmpty()) {
-                    serverAddress = "localhost"; // Default for local testing
-                }
+                // For a real distributed setup, replace with actual server IPs
+                serverAddresses.add("10.59.174.194:12345");
+                serverAddresses.add("10.59.174.193:12345");
+                serverAddresses.add("10.59.174.195:12345");
                 
-                WhiteboardClient client = new WhiteboardClient(serverAddress, 12345);
-                client.registerUser(username);
+                new WhiteboardClient(serverAddresses, username);
             } else {
                 System.exit(0);
             }

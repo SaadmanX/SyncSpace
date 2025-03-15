@@ -11,7 +11,11 @@ public class Message implements Serializable {
         CLEAR,
         USER_JOIN,
         USER_LEAVE,
-        VOICE_CHAT
+        VOICE_CHAT,
+        HEARTBEAT,           // New type for server heartbeats
+        LEADER_ELECTION,     // New type for leader election messages
+        LEADER_ANNOUNCEMENT, // New type to announce the new leader
+        STATE_SYNC           // New type for full state synchronization
     }
 
     private MessageType type;

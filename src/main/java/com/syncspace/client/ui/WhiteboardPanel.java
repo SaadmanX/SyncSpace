@@ -9,7 +9,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class WhiteboardPanel extends JPanel {
-    // test for commit
     private BufferedImage canvas;
     private Graphics2D g2d;
     private List<Point> points;
@@ -26,6 +25,11 @@ public class WhiteboardPanel extends JPanel {
         this.g2d.setStroke(new BasicStroke(strokeSize, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
         this.points = new ArrayList<>();
         this.setBackground(Color.WHITE);
+        
+        // Fill canvas with white initially
+        this.g2d.setColor(Color.WHITE);
+        this.g2d.fillRect(0, 0, canvas.getWidth(), canvas.getHeight());
+        this.g2d.setColor(currentColor);
     }
 
     public void startDrawing(Point point) {
@@ -78,8 +82,49 @@ public class WhiteboardPanel extends JPanel {
     public void setColor(Color color) {
         this.currentColor = color;
     }
+    
+    public Color getCurrentColor() {
+        return currentColor;
+    }
 
     public void setStrokeSize(int size) {
         this.strokeSize = size;
+    }
+    
+    // Method to get the current state of the canvas as a byte array
+    // This can be used for state synchronization
+    public byte[] getCanvasState() {
+        // This is a simplified example - in a real app you'd use compression
+        int[] pixels = new int[canvas.getWidth() * canvas.getHeight()];
+        canvas.getRGB(0, 0, canvas.getWidth(), canvas.getHeight(), pixels, 0, canvas.getWidth());
+        
+        // Convert int[] to byte[]
+        byte[] result = new byte[pixels.length * 4];
+        for (int i = 0; i < pixels.length; i++) {
+            result[i * 4] = (byte) ((pixels[i] >> 24) & 0xff); // alpha
+            result[i * 4 + 1] = (byte) ((pixels[i] >> 16) & 0xff); // red
+            result[i * 4 + 2] = (byte) ((pixels[i] >> 8) & 0xff); // green
+            result[i * 4 + 3] = (byte) (pixels[i] & 0xff); // blue
+        }
+        
+        return result;
+    }
+    
+    // Method to restore the canvas from a byte array
+    public void restoreCanvasState(byte[] state) {
+        if (state == null || state.length != canvas.getWidth() * canvas.getHeight() * 4) {
+            return;
+        }
+        
+        int[] pixels = new int[canvas.getWidth() * canvas.getHeight()];
+        for (int i = 0; i < pixels.length; i++) {
+            pixels[i] = ((state[i * 4] & 0xff) << 24) | // alpha
+                         ((state[i * 4 + 1] & 0xff) << 16) | // red
+                         ((state[i * 4 + 2] & 0xff) << 8) | // green
+                         (state[i * 4 + 3] & 0xff); // blue
+        }
+        
+        canvas.setRGB(0, 0, canvas.getWidth(), canvas.getHeight(), pixels, 0, canvas.getWidth());
+        repaint();
     }
 }
