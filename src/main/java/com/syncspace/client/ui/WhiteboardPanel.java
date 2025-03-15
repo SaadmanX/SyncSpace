@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class WhiteboardPanel extends JPanel {
+    // test for commit
     private BufferedImage canvas;
     private Graphics2D g2d;
     private List<Point> points;
