@@ -295,7 +295,7 @@ public class ReplicationManager {
         if (leader == null) {
             if (leaderElection.getLeader().equals(serverAddress + ":" + replicationPort)) {
                 isLeader = true;
-                logger.info("This server is now the leader");
+                logger.info("This server is now the leader: " + serverAddress + ":" + replicationPort  + " (PID: " + ProcessHandle.current().pid() + ")");
             }
         }
     }
