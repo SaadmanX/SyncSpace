@@ -173,7 +173,9 @@ public class ReplicationManager {
                     // We are follower until proven otherwise
                     if (leader == null) {
                         // No leader yet, perform election
+                        logger.info("starting election from replication manager");
                         performLeaderElection();
+                        logger.info("Found Leader");
                     }
                 }
                 
