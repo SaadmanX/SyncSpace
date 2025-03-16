@@ -6,10 +6,15 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Logger;
 
 public class ReplicationManager {
@@ -25,6 +30,10 @@ public class ReplicationManager {
     private Thread replicationServerThread;
     private LeaderElection leaderElection;
     private String serverIdentity;
+    private ScheduledExecutorService statusReporter;
+    private ScheduledExecutorService heartbeatService;
+    private AtomicLong lastHeartbeatResponse = new AtomicLong(0);
+    private Map<String, Long> heartbeatResponses = new ConcurrentHashMap<>();
 
     public ReplicationManager(String serverAddress, int serverPort, int replicationPort) {
         this.serverAddress = serverAddress;
@@ -32,6 +41,7 @@ public class ReplicationManager {
         this.replicationPort = replicationPort;
         this.followers = new CopyOnWriteArrayList<>();
         this.stateStore = new ConcurrentHashMap<>();
+        this.serverIdentity = "[Server " + serverAddress + ":" + serverPort + ":" + replicationPort + "]";
     }
     
     private void logInfo(String message) {
@@ -56,6 +66,12 @@ public class ReplicationManager {
             
             // Try to connect to existing servers
             connectToExistingServers();
+            
+            // Start status reporter
+            startStatusReporter();
+            
+            // Start heartbeat service
+            startHeartbeatService();
         } catch (Exception e) {
             logger.severe("Error starting replication manager: " + e.getMessage());
         }
@@ -245,9 +261,22 @@ public class ReplicationManager {
             case HEARTBEAT:
                 // Respond to heartbeat
                 try {
-                    server.sendData(new ReplicationPacket(ReplicationPacket.Type.HEARTBEAT_ACK, null));
+                    // Send back the time we received it for ping calculation
+                    server.sendData(new ReplicationPacket(ReplicationPacket.Type.HEARTBEAT_ACK, 
+                                                          System.currentTimeMillis()));
                 } catch (IOException e) {
                     logger.warning("Failed to respond to heartbeat: " + e.getMessage());
+                }
+                break;
+            case HEARTBEAT_ACK:
+                // Process heartbeat acknowledgment
+                if (isLeader) {
+                    // Update response time for follower
+                    String serverKey = server.getAddress() + ":" + server.getPort();
+                    heartbeatResponses.put(serverKey, System.currentTimeMillis());
+                } else if (server == leader) {
+                    // Update response time for leader
+                    lastHeartbeatResponse.set(System.currentTimeMillis());
                 }
                 break;
             case LEADER_ELECTION:
@@ -530,6 +559,16 @@ public class ReplicationManager {
     
     public void shutdown() {
         try {
+            // Stop the status reporter
+            if (statusReporter != null) {
+                statusReporter.shutdownNow();
+            }
+            
+            // Stop the heartbeat service
+            if (heartbeatService != null) {
+                heartbeatService.shutdownNow();
+            }
+            
             // Interrupt the replication server thread
             if (replicationServerThread != null) {
                 replicationServerThread.interrupt();
@@ -545,7 +584,7 @@ public class ReplicationManager {
                 leader.close();
             }
             
-            for (ServerInstance follower : followers) {
+            for (ServerInstance follower : new ArrayList<>(followers)) {
                 follower.close();
             }
             
@@ -553,6 +592,125 @@ public class ReplicationManager {
         } catch (IOException e) {
             logger.severe("Error during shutdown: " + e.getMessage());
         }
+    }
+    
+    // Add this method to start the status reporter
+    private void startStatusReporter() {
+        statusReporter = Executors.newSingleThreadScheduledExecutor();
+        statusReporter.scheduleAtFixedRate(() -> {
+            try {
+                printServerStatus();
+            } catch (Exception e) {
+                logWarning("Error in status reporter: " + e.getMessage());
+            }
+        }, 2, 2, TimeUnit.SECONDS);
+    }
+    
+    // Add this method to start the heartbeat service
+    private void startHeartbeatService() {
+        heartbeatService = Executors.newSingleThreadScheduledExecutor();
+        heartbeatService.scheduleAtFixedRate(() -> {
+            try {
+                sendHeartbeats();
+            } catch (Exception e) {
+                logWarning("Error in heartbeat service: " + e.getMessage());
+            }
+        }, 1, 1, TimeUnit.SECONDS);
+    }
+    
+    // Add this method to send heartbeats to all connected servers
+    private void sendHeartbeats() {
+        if (isLeader) {
+            // Send heartbeat to all followers
+            for (ServerInstance follower : followers) {
+                try {
+                    long pingTime = System.currentTimeMillis();
+                    ReplicationPacket heartbeat = new ReplicationPacket(
+                        ReplicationPacket.Type.HEARTBEAT, 
+                        "ping", 
+                        pingTime
+                    );
+                    follower.sendData(heartbeat);
+                    // Store the time sent for this follower
+                    heartbeatResponses.put(follower.getAddress() + ":" + follower.getPort(), -1L); // -1 means waiting for response
+                } catch (IOException e) {
+                    logWarning("Failed to send heartbeat to follower " + follower.getAddress() + ":" + follower.getPort());
+                    // Mark as unreachable
+                    heartbeatResponses.put(follower.getAddress() + ":" + follower.getPort(), -2L); // -2 means unreachable
+                }
+            }
+        } else if (leader != null) {
+            // Send heartbeat to leader
+            try {
+                long pingTime = System.currentTimeMillis();
+                ReplicationPacket heartbeat = new ReplicationPacket(
+                    ReplicationPacket.Type.HEARTBEAT, 
+                    "ping", 
+                    pingTime
+                );
+                leader.sendData(heartbeat);
+                lastHeartbeatResponse.set(-1L); // -1 means waiting for response
+            } catch (IOException e) {
+                logWarning("Failed to send heartbeat to leader " + leader.getAddress() + ":" + leader.getPort());
+                lastHeartbeatResponse.set(-2L); // -2 means unreachable
+            }
+        }
+    }
+    
+    // Add this method to print server status
+    private void printServerStatus() {
+        StringBuilder status = new StringBuilder();
+        status.append("\n==================================\n");
+        status.append("SERVER STATUS REPORT - PID: ").append(ProcessHandle.current().pid()).append("\n");
+        status.append("Server: ").append(serverAddress).append(":")
+              .append(serverPort).append(" (Repl port: ").append(replicationPort).append(")\n");
+        status.append("Role: ").append(isLeader ? "LEADER" : "FOLLOWER").append("\n");
+        
+        if (isLeader) {
+            status.append("Followers (").append(followers.size()).append("):\n");
+            for (ServerInstance follower : followers) {
+                long pingTime = heartbeatResponses.getOrDefault(follower.getAddress() + ":" + follower.getPort(), 0L);
+                String pingStatus;
+                if (pingTime == -1L) {
+                    pingStatus = "waiting for response";
+                } else if (pingTime == -2L) {
+                    pingStatus = "unreachable";
+                } else if (pingTime == 0L) {
+                    pingStatus = "not pinged yet";
+                } else {
+                    pingStatus = (System.currentTimeMillis() - pingTime) + "ms";
+                }
+                
+                status.append("  - ").append(follower.getAddress()).append(":")
+                      .append(follower.getPort()).append(" (ping: ").append(pingStatus).append(")\n");
+            }
+        } else {
+            if (leader != null) {
+                long pingTime = lastHeartbeatResponse.get();
+                String pingStatus;
+                if (pingTime == -1L) {
+                    pingStatus = "waiting for response";
+                } else if (pingTime == -2L) {
+                    pingStatus = "unreachable";
+                } else if (pingTime == 0L) {
+                    pingStatus = "not pinged yet";
+                } else {
+                    pingStatus = (System.currentTimeMillis() - pingTime) + "ms";
+                }
+                
+                status.append("Leader: ").append(leader.getAddress()).append(":")
+                      .append(leader.getPort()).append(" (ping: ").append(pingStatus).append(")\n");
+            } else {
+                status.append("Leader: None (election may be in progress)\n");
+            }
+        }
+        
+        String currentLeaderId = leaderElection.getLeader();
+        status.append("Election Leader ID: ").append(currentLeaderId).append("\n");
+        status.append("State store entries: ").append(stateStore.size()).append("\n");
+        status.append("==================================\n");
+        
+        System.out.println(status.toString());
     }
 }
 
@@ -608,6 +766,7 @@ class ServerInstance {
             connected = false;
         } catch (IOException e) {
             // Log exception
+            System.out.println("Some exception: "+e.getMessage())
         }
     }
 
