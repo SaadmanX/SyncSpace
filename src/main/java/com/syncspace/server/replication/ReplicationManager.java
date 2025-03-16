@@ -350,8 +350,7 @@ public class ReplicationManager {
             // We are the new leader
             isLeader = true;
             leader = null;
-            logger.info("This server is now the leader after election");
-            
+            logger.info("This server is now the leader after election" + ProcessHandle.current().pid());
             // Notify followers of leadership change
             for (ServerInstance follower : followers) {
                 try {
