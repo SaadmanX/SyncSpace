@@ -766,7 +766,7 @@ class ServerInstance {
             connected = false;
         } catch (IOException e) {
             // Log exception
-            System.out.println("Some exception: "+e.getMessage())
+            System.out.println("Some exception: "+e.getMessage());
         }
     }
 
