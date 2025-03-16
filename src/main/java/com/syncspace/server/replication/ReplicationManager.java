@@ -24,6 +24,7 @@ public class ReplicationManager {
     private ServerSocket replicationServerSocket;
     private Thread replicationServerThread;
     private LeaderElection leaderElection;
+    private String serverIdentity;
 
     public ReplicationManager(String serverAddress, int serverPort, int replicationPort) {
         this.serverAddress = serverAddress;
@@ -31,6 +32,18 @@ public class ReplicationManager {
         this.replicationPort = replicationPort;
         this.followers = new CopyOnWriteArrayList<>();
         this.stateStore = new ConcurrentHashMap<>();
+    }
+    
+    private void logInfo(String message) {
+        logger.info(serverIdentity + " " + message);
+    }
+    
+    private void logWarning(String message) {
+        logger.warning(serverIdentity + " " + message);
+    }
+    
+    private void logSevere(String message) {
+        logger.severe(serverIdentity + " " + message);
     }
 
     public void start() {
@@ -63,7 +76,7 @@ public class ReplicationManager {
         try {
             // Check if port is already in use before attempting to bind
             if (isPortInUse(replicationPort)) {
-                logger.warning("Port " + replicationPort + " is already in use, trying alternative port");
+                logWarning("Port " + replicationPort + " is already in use, trying alternative port");
                 tryAlternativePort();
                 return;
             }
@@ -78,7 +91,7 @@ public class ReplicationManager {
             }
             
             replicationServerSocket = new ServerSocket(replicationPort);
-            logger.info("Replication server started on port " + replicationPort);
+            logInfo("Replication server started on port " + replicationPort);
             
             replicationServerThread = new Thread(() -> {
                 while (!Thread.currentThread().isInterrupted() && !replicationServerSocket.isClosed()) {
@@ -87,7 +100,7 @@ public class ReplicationManager {
                         handleReplicationConnection(socket);
                     } catch (IOException e) {
                         if (!replicationServerSocket.isClosed() && !Thread.currentThread().isInterrupted()) {
-                            logger.severe("Error accepting replication connection: " + e.getMessage());
+                            logSevere("Error accepting replication connection: " + e.getMessage());
                         }
                         break;
                     }
@@ -96,7 +109,7 @@ public class ReplicationManager {
             replicationServerThread.setDaemon(true);
             replicationServerThread.start();
         } catch (IOException e) {
-            logger.severe("Could not start replication server: " + e.getMessage());
+            logSevere("Could not start replication server: " + e.getMessage());
             // Try an alternative port if this one is in use
             tryAlternativePort();
         }
@@ -164,6 +177,8 @@ public class ReplicationManager {
                 remoteServer.setOutputStream(out);
                 remoteServer.setInputStream(in);
                 
+                logInfo("Connection established with remote server " + remoteAddress + ":" + remotePort);
+                
                 // Determine leader/follower relationship
                 if (isLeader) {
                     // We are leader, they are follower
@@ -173,6 +188,7 @@ public class ReplicationManager {
                     // We are follower until proven otherwise
                     if (leader == null) {
                         // No leader yet, perform election
+                        logInfo("No leader yet, performing election");
                         performLeaderElection();
                     }
                 }
@@ -181,7 +197,7 @@ public class ReplicationManager {
                 listenForReplicationData(remoteServer, in);
                 
             } catch (IOException | ClassNotFoundException e) {
-                logger.severe("Error handling replication connection: " + e.getMessage());
+                logSevere("Error handling replication connection: " + e.getMessage());
                 handleServerFailure(socket);
             }
         }).start();
@@ -199,6 +215,7 @@ public class ReplicationManager {
     
     private void listenForReplicationData(ServerInstance server, ObjectInputStream in) {
         try {
+            logInfo("Listening for replication data from " + server.getAddress() + ":" + server.getPort());
             while (true) {
                 Object obj = in.readObject();
                 if (obj instanceof ReplicationPacket) {
@@ -207,7 +224,7 @@ public class ReplicationManager {
                 }
             }
         } catch (IOException | ClassNotFoundException e) {
-            logger.warning("Lost connection with server " + server.getAddress());
+            logWarning("Lost connection with server " + server.getAddress() + ":" + server.getPort() + " - " + e.getMessage());
             handleServerFailure(server.getSocket());
         }
     }
@@ -293,8 +310,8 @@ public class ReplicationManager {
         if (leader == null) {
             if (leaderElection.getLeader().equals(serverAddress + ":" + replicationPort)) {
                 isLeader = true;
-                logger.info("This server is now the leader: " + serverAddress + ":" + replicationPort + 
-                " (PID: " + ProcessHandle.current().pid() + ")");            
+                logInfo("This server is now the leader: " + serverAddress + ":" + replicationPort + 
+                " (PID: " + ProcessHandle.current().pid() + ", Client Port: " + serverPort + ")");            
             }
         }
     }
@@ -317,6 +334,7 @@ public class ReplicationManager {
         if (leader != null && leader.getSocket() == socket) {
             failedServer = leader;
             leader = null;
+            logWarning("Leader has failed, starting election");
             // Leader failed, start election
             performLeaderElection();
         } else {
@@ -330,7 +348,7 @@ public class ReplicationManager {
         }
         
         if (failedServer != null) {
-            logger.warning("Server " + failedServer.getAddress() + " has failed");
+            logWarning("Server " + failedServer.getAddress() + ":" + failedServer.getPort() + " has failed");
             try {
                 if (!socket.isClosed()) {
                     socket.close();
@@ -350,18 +368,21 @@ public class ReplicationManager {
             // We are the new leader
             isLeader = true;
             leader = null;
-            logger.info("This server is now the leader after election" + ProcessHandle.current().pid());
+            logInfo("This server is now the leader after election - PID: " + ProcessHandle.current().pid() + 
+               ", Client Port: " + serverPort + ", Repl Port: " + replicationPort);
             // Notify followers of leadership change
             for (ServerInstance follower : followers) {
                 try {
+                    logInfo("Notifying follower " + follower.getAddress() + ":" + follower.getPort() + " of leadership change");
                     follower.sendData(new ReplicationPacket(ReplicationPacket.Type.LEADER_CHANGED, serverAddress + ":" + replicationPort));
                 } catch (IOException e) {
-                    logger.warning("Failed to notify follower of leadership change: " + e.getMessage());
+                    logWarning("Failed to notify follower of leadership change: " + e.getMessage());
                 }
             }
         } else {
             // Someone else is leader
             isLeader = false;
+            logInfo("Another server is the leader: " + newLeaderId);
             // Try to connect to new leader if not already connected
             boolean alreadyConnected = false;
             
@@ -419,12 +440,12 @@ public class ReplicationManager {
 
     public void addFollower(ServerInstance follower) {
         followers.add(follower);
-        logger.info("Added follower: " + follower.getAddress() + ":" + follower.getPort());
+        logInfo("Added follower: " + follower.getAddress() + ":" + follower.getPort());
     }
 
     public void removeFollower(ServerInstance follower) {
         followers.remove(follower);
-        logger.info("Removed follower: " + follower.getAddress() + ":" + follower.getPort());
+        logInfo("Removed follower: " + follower.getAddress() + ":" + follower.getPort());
     }
 
     public void setLeader(ServerInstance leader) {
