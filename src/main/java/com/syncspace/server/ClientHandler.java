@@ -1,7 +1,6 @@
 package com.syncspace.server;
 
 import com.syncspace.common.Message;
-import com.syncspace.common.User;
 
 import java.io.IOException;
 import java.io.ObjectInputStream;
@@ -11,16 +10,14 @@ import java.net.Socket;
 public class ClientHandler extends Thread {
     private Socket socket;
     private UserManager userManager;
-    private WhiteboardSession whiteboardSession;
     private ObjectInputStream inputStream;
     private ObjectOutputStream outputStream;
     private String username;
     private Server server;
 
-    public ClientHandler(Socket socket, UserManager userManager, WhiteboardSession whiteboardSession, Server server) {
+    public ClientHandler(Socket socket, UserManager userManager, Server server) {
         this.socket = socket;
         this.userManager = userManager;
-        this.whiteboardSession = whiteboardSession;
         this.server = server;
     }
 
@@ -82,8 +79,6 @@ public class ClientHandler extends Thread {
                 outputStream.flush();
                 
                 if (registered) {
-                    // Add user to whiteboard session
-                    whiteboardSession.addUser(new User(username, username));
                     System.out.println("User " + username + " connected");
                     
                     // Broadcast to all clients that a new user has joined
