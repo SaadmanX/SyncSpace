@@ -9,6 +9,7 @@ import java.net.Socket;
 import java.net.UnknownHostException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -37,7 +38,6 @@ public class Server {
     private ObjectOutputStream leaderOutputStream;
     
     // For logging
-    private SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
 
     public Server() {
         userManager = new UserManager();
@@ -83,13 +83,14 @@ public class Server {
         }
         
         // Connect to leader
-        connectToLeader();
+        connectToLeader(0);
         
         // Start ping scheduler
         startPingScheduler();
     }
     
     private void logMessage(String message) {
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
         String timestamp = dateFormat.format(new Date());
         String serverType = isLeader ? "[LEADER]" : "[FOLLOWER]";
         System.out.println(timestamp + " " + serverType + " " + message);
@@ -139,12 +140,8 @@ public class Server {
                 while (true) {
                     logMessage("Waiting for messages from follower: " + followerIp);
                     Object message = in.readObject();
-                    if (message instanceof String) {
-                        String pingMessage = (String) message;
-                        logMessage("PING RECEIVED from follower [" + followerIp + "]: " + pingMessage);
-                    } else {
-                        logMessage("Received non-string message from follower: " + followerIp);
-                    }
+                    String pingMessage = (String) message;
+                    logMessage("PING RECEIVED from follower [" + followerIp + "]: " + pingMessage);
                 }
             } catch (IOException | ClassNotFoundException e) {
                 logMessage("ERROR reading from follower " + followerIp + ": " + e.getMessage());
@@ -160,7 +157,7 @@ public class Server {
         }).start();
     }
     
-    private void connectToLeader() {
+    private void connectToLeader(int count) {
         logMessage("Attempting to connect to leader at " + leaderIp + ":" + SERVER_PORT);
         new Thread(() -> {
             try {
@@ -181,8 +178,11 @@ public class Server {
                 // Try to reconnect after a delay
                 logMessage("Will attempt to reconnect in 5 seconds...");
                 try {
+                    if (count >= 3) {
+                        startElection();
+                    }
                     Thread.sleep(5000);
-                    connectToLeader();
+                    connectToLeader(count + 1);
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     logMessage("Reconnection attempt interrupted");
@@ -201,12 +201,9 @@ public class Server {
                 while (true) {
                     logMessage("Waiting for messages from leader");
                     Object message = in.readObject();
-                    if (message instanceof String) {
-                        String pingMessage = (String) message;
-                        logMessage("PING RECEIVED from leader: " + pingMessage);
-                    } else {
-                        logMessage("Received non-string message from leader");
-                    }
+                    String pingMessage = (String) message;
+                    logMessage("PING RECEIVED from leader: " + pingMessage);
+                    followerIps = Arrays.asList(pingMessage.split("\\s*\\*\\s*"));
                 }
             } catch (IOException | ClassNotFoundException e) {
                 logMessage("LOST CONNECTION TO LEADER: " + e.getMessage());
@@ -221,7 +218,7 @@ public class Server {
                 logMessage("Will attempt to reconnect to leader in 5 seconds...");
                 try {
                     Thread.sleep(5000);
-                    connectToLeader();
+                    connectToLeader(0);
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     logMessage("Reconnection attempt interrupted");
@@ -255,7 +252,7 @@ public class Server {
         for (int i = 0; i < followerOutputStreams.size(); i++) {
             try {
                 logMessage("Sending ping to follower: " + followerIps.get(i));
-                followerOutputStreams.get(i).writeObject(serverIp);
+                followerOutputStreams.get(i).writeObject(String.join(" * ", followerIps));
                 followerOutputStreams.get(i).flush();
                 logMessage("Ping sent successfully to follower: " + followerIps.get(i));
             } catch (IOException e) {
@@ -290,12 +287,16 @@ public class Server {
                 }
                 
                 leaderOutputStream = null;
-                connectToLeader();
+                connectToLeader(0);
             }
         } else {
             logMessage("Not connected to leader, cannot send ping");
-            connectToLeader();
+            connectToLeader(0);
         }
+    }
+
+    public void startElection() {
+        logMessage("Should start election now");
     }
 
     public void start() {
@@ -321,11 +322,18 @@ public class Server {
     
     public void broadcastToAll(Object message, ClientHandler sender) {
         for (ClientHandler client : connectedClients) {
-            // Don't send back to the sender (optional)
             if (client != sender) {
                 client.sendMessage(message);
             }
         }
+    }
+
+    public boolean isLeader() {
+        return isLeader;
+    }
+
+    public ObjectOutputStream getLeaderOutputStream() {
+        return leaderOutputStream;
     }
 
     public static void main(String[] args) {
@@ -342,3 +350,4 @@ public class Server {
         server.start();
     }
 }
+

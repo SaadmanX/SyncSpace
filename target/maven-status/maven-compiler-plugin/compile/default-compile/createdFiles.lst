@@ -3,7 +3,6 @@ com\syncspace\server\ClientHandler$1.class
 com\syncspace\client\WhiteboardClient$2.class
 com\syncspace\common\Message.class
 com\syncspace\server\Server.class
-com\syncspace\client\Client.class
 com\syncspace\common\Message$MessageType.class
 com\syncspace\client\ui\ChatPanel$1.class
 com\syncspace\client\ui\ChatPanel.class
