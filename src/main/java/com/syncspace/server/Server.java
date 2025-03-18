@@ -88,9 +88,10 @@ public class Server {
             logMessage("Command line args: 0 arguments provided");
         }
         
+        startServerToServerListener(); 
         // Initialize server based on role
         if (isLeader()) {
-            startServerToServerListener();
+            // startServerToServerListener();
         } else {
             connectToLeader();
         }
@@ -255,7 +256,7 @@ public class Server {
     //         1, 3, TimeUnit.SECONDS);
     // }
     
-    /**
+    /*e
      * Sends ping messages to all followers (leader mode).
      */
     private void pingFollowers() {
