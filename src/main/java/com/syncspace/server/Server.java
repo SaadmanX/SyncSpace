@@ -9,7 +9,6 @@ import java.net.Socket;
 import java.net.UnknownHostException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -17,6 +16,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class Server {
     private static final int PORT = 12345; // Client connection port
@@ -26,8 +26,8 @@ public class Server {
     
     private final UserManager userManager;
     private final List<ClientHandler> connectedClients;
-    private final boolean isLeader;
-    private final String leaderIp;
+    private AtomicBoolean actingAsLeader = new AtomicBoolean(false);
+    private String leaderIp;
     private final String serverIp;
     
     // Thread pools for better resource management
@@ -35,9 +35,9 @@ public class Server {
     private final ScheduledExecutorService schedulerThreadPool;
     
     // Server connection management
-    private List<ServerConnection> serverConnections = new CopyOnWriteArrayList<>();
+    private final List<ServerConnection> serverConnections = new CopyOnWriteArrayList<>();
     // track followers (both leaders and followers use this)
-    private List<String> followerIps = new CopyOnWriteArrayList<>();
+    private final List<String> followerIps = new CopyOnWriteArrayList<>();
 
     // Server sockets
     private ServerSocket clientServerSocket;
@@ -57,7 +57,7 @@ public class Server {
     public Server(String leaderIp) {
         this.userManager = new UserManager();
         this.connectedClients = new CopyOnWriteArrayList<>();
-        this.isLeader = (leaderIp == null);
+        this.actingAsLeader.set(leaderIp == null);
         this.leaderIp = leaderIp;
         
         // Initialize thread pools
@@ -75,16 +75,16 @@ public class Server {
         this.serverIp = localIp;
         
         // Log startup information
-        logMessage("======= STARTING SERVER AS " + (isLeader ? "LEADER" : "FOLLOWER") + " =======");
+        logMessage("======= STARTING SERVER AS " + (isLeader() ? "LEADER" : "FOLLOWER") + " =======");
         logMessage("SERVER IP: " + serverIp);
-        if (!isLeader) {
+        if (!isLeader()) {
             logMessage("Command line args: 1 argument provided - Leader IP: " + leaderIp);
         } else {
             logMessage("Command line args: 0 arguments provided");
         }
         
         // Initialize server based on role
-        if (isLeader) {
+        if (isLeader()) {
             startServerToServerListener();
         } else {
             connectToLeader(0);
@@ -100,7 +100,7 @@ public class Server {
     private void logMessage(String message) {
         SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
         String timestamp = dateFormat.format(new Date());
-        String serverType = isLeader ? "[LEADER]" : "[FOLLOWER]";
+        String serverType = isLeader() ? "[LEADER]" : "[FOLLOWER]";
         System.out.println(timestamp + " " + serverType + " " + message);
     }
     
@@ -108,7 +108,7 @@ public class Server {
      * Starts the server-to-server listener (leader mode)
      */
     private void startServerToServerListener() {
-        if (!isLeader) return;
+        if (!isLeader()) return;
         
         connectionThreadPool.execute(() -> {
             try (ServerSocket serverSocket = new ServerSocket(SERVER_PORT)) {
@@ -126,7 +126,9 @@ public class Server {
                         ServerConnection connection = new ServerConnection(
                             followerSocket, followerIp, ServerConnectionType.FOLLOWER);
                         serverConnections.add(connection);
-                        
+                        followerIps.add(followerIp);
+                        sendFollowersToClients();
+
                         // Start the connection
                         connection.start();
                     } catch (IOException e) {
@@ -147,7 +149,7 @@ public class Server {
      * Connects to the leader server (follower mode)
      */
     private void connectToLeader(int attemptCount) {
-        if (isLeader) return;
+        if (isLeader()) return;
         followerIps.clear();
         
         connectionThreadPool.execute(() -> {
@@ -189,6 +191,23 @@ public class Server {
             }
         });
     }
+
+    public void sendFollowersToClients() {
+        if (!isLeader()) return;
+        
+        logMessage("Sending updated follower list to all clients: " + followerIps);
+        
+        // Create a message with all follower IPs joined with "*" as delimiter
+        // Use the same format as in ping messages for consistency
+        String followerList = String.join(" * ", followerIps);
+        String messageContent = "SERVER_FOLLOWER_LIST:" + followerList;
+        
+        // Send to all clients
+        for (ClientHandler client : connectedClients) {
+            client.sendMessage(messageContent);
+        }
+    }
+    
     
     /**
      * Starts the ping scheduler
@@ -196,7 +215,7 @@ public class Server {
     private void startPingScheduler() {
         logMessage("Starting ping scheduler - will ping every 5 seconds");
         schedulerThreadPool.scheduleAtFixedRate(() -> {
-            if (isLeader) {
+            if (isLeader()) {
                 pingFollowers();
             } else {
                 pingLeader();
@@ -211,6 +230,8 @@ public class Server {
      * Sends ping messages to all followers (leader mode)
      */
     private void pingFollowers() {
+        if (!isLeader()) return;
+
         followerIps.clear();
         
         // Build list of follower IPs
@@ -249,6 +270,8 @@ public class Server {
      * Sends ping message to the leader (follower mode)
      */
     private void pingLeader() {
+        if (isLeader()) return;
+
         ServerConnection leaderConnection = getLeaderConnection();
         
         if (leaderConnection == null) {
@@ -284,9 +307,80 @@ public class Server {
      * Starts the election process
      */
     public void startElection() {
-        logMessage("Should start election now");
-        // Election logic goes here
+        logMessage("========== STARTING ELECTION PROCESS ==========");
+        
+        // Collect all server IPs including this one
+        List<String> allServerIps = new ArrayList<>(followerIps);
+        allServerIps.add(serverIp);
+        
+        logMessage("Servers participating in election: " + allServerIps);
+        
+        // Simple bully algorithm: highest IP becomes leader
+        String highestIp = "";
+        for (String ip : allServerIps) {
+            if (ip.compareTo(highestIp) > 0) {
+                highestIp = ip;
+            }
+        }
+        
+        logMessage("Election result: Highest IP is " + highestIp);
+        
+        if (highestIp.equals(serverIp)) {
+            logMessage("THIS SERVER WON THE ELECTION!");
+            becomeLeader();
+        } else {
+            logMessage("Another server won the election: " + highestIp);
+            followNewLeader(highestIp);
+        }
+        
+        logMessage("========== ELECTION PROCESS COMPLETE ==========");
     }
+    
+    // For following a new leader
+    private void followNewLeader(String newLeaderIp) {
+        // Update leader state
+        actingAsLeader.set(false);
+        this.leaderIp = newLeaderIp;
+        
+        // Connect to the new leader
+        connectToLeader(0);
+    }
+
+    // for becoming a leader from a follower
+    private void becomeLeader() {
+        // Only execute if we're not already a leader
+        if (isLeader()) {
+            logMessage("Already in leader mode, no transition needed");
+            return;
+        }
+        
+        logMessage("TRANSITIONING TO LEADER MODE");
+        
+        // Clear all existing connections
+        for (ServerConnection conn : new ArrayList<>(serverConnections)) {
+            conn.close();
+        }
+        serverConnections.clear();
+        
+        // Remove this server's IP from the follower list
+        followerIps.remove(serverIp);
+        logMessage("Removed self from follower list: " + serverIp);
+
+        // Set leader state
+        actingAsLeader.set(true);
+        
+        // Notify clients about leadership change
+        broadcastToAll("SERVER_LEADERSHIP_CHANGE", null);
+        
+        // Start server socket for followers
+        startServerToServerListener();
+
+        // Start listening to Clients now
+        start();
+        
+        logMessage("Successfully transitioned to leader mode");
+    }
+    
 
     /**
      * Logs the complete state of the server
@@ -294,10 +388,10 @@ public class Server {
     private void logServerState() {
         StringBuilder state = new StringBuilder();
         state.append("\n=============== SERVER STATE ===============\n");
-        state.append("Role: ").append(isLeader ? "LEADER" : "FOLLOWER").append("\n");
+        state.append("Role: ").append(isLeader() ? "LEADER" : "FOLLOWER").append("\n");
         state.append("Server IP: ").append(serverIp).append("\n");
         
-        if (isLeader) {
+        if (isLeader()) {
             state.append("Leader status: This server is the leader\n");
         } else {
             ServerConnection leaderConn = getLeaderConnection();
@@ -379,7 +473,7 @@ public class Server {
      * Checks if this server is the leader
      */
     public boolean isLeader() {
-        return isLeader;
+        return actingAsLeader.get();
     }
 
     /**
@@ -474,7 +568,6 @@ public class Server {
                     
                     logMessage("Communication streams established with " + 
                             type.name().toLowerCase() + ": " + remoteIp);
-                    
                     // Read messages until connection is closed
                     while (!Thread.currentThread().isInterrupted() && !socket.isClosed()) {
                         try {
@@ -489,7 +582,7 @@ public class Server {
                     logMessage("Connection to " + role + " lost: " + e.getMessage());
                     
                     // Reconnect if this was the leader connection
-                    if (type == ServerConnectionType.LEADER && !isLeader) {
+                    if (type == ServerConnectionType.LEADER && !isLeader()) {
                         connectToLeader(0);
                     }
                 } finally {
@@ -511,7 +604,12 @@ public class Server {
                 if (type == ServerConnectionType.LEADER && pingMessage.contains("*")) {
                     followerIps.clear();
 
-                    followerIps = Arrays.asList(pingMessage.split("\\s*\\*\\s*"));
+                    String[] ips = pingMessage.split("\\s*\\*\\s*");
+                    for (String ip : ips) {
+                        if (!ip.trim().isEmpty()) {
+                            followerIps.add(ip.trim());
+                        }
+                    }
                     logMessage("Updated follower list from leader: " + followerIps);
                 }
             } else {
@@ -555,6 +653,12 @@ public class Server {
             String typeName = type == ServerConnectionType.LEADER ? "Leader" : "Follower";
             logMessage(typeName + " " + remoteIp + " disconnected. Active server connections: " + 
                     serverConnections.size());
+
+            followerIps.remove(getRemoteIp());
+            if (isLeader() && type == ServerConnectionType.FOLLOWER) {
+                // The list will be updated after the connection is removed
+                schedulerThreadPool.schedule(() -> sendFollowersToClients(), 100, TimeUnit.MILLISECONDS);
+            }
         }
         
         /**
@@ -591,9 +695,8 @@ public class Server {
         } else {
             // No arguments, start as a leader
             server = new Server();
+            server.start();
         }
-        
-        server.start();
         
         // Add shutdown hook for clean resource release
         Runtime.getRuntime().addShutdownHook(new Thread(server::shutdown));

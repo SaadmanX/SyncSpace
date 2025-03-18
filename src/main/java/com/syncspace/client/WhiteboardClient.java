@@ -11,6 +11,8 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.List;
 
 public class WhiteboardClient {
     private Socket socket;
@@ -20,17 +22,17 @@ public class WhiteboardClient {
     private WhiteboardPanel whiteboardPanel;
     private ChatPanel chatPanel;
     private String username;
+    private final List<String> followerIps = new CopyOnWriteArrayList<>();
+
 
     public WhiteboardClient(String serverAddress, int serverPort) {
         try {
-            // 10.0.0.54
             socket = new Socket(serverAddress, serverPort);
             // Important: Create output stream first, then flush it immediately
             outputStream = new ObjectOutputStream(socket.getOutputStream());
             outputStream.flush();
             // Then create input stream
             inputStream = new ObjectInputStream(socket.getInputStream());
-            
             initializeUI();
             setupEventHandlers();
         } catch (IOException e) {
@@ -160,7 +162,15 @@ public class WhiteboardClient {
                     if (input instanceof Message) {
                         handleMessage((Message) input);
                     } else if (input instanceof String) {
-                        chatPanel.receiveMessage((String) input);
+                        String message = (String) input;
+                        if (message.startsWith("SERVER_FOLLOWER_LIST:")) {
+                            // Extract the follower list part
+                            String followerListPart = message.substring("SERVER_FOLLOWER_LIST:".length());
+                            updateFollowerList(followerListPart);
+                        } else {
+                            // Handle regular string messages as before
+                            chatPanel.receiveMessage(message);
+                        }                    
                     } else if (input instanceof Boolean) {
                         // This is a response to the registration process
                         boolean success = (Boolean) input;
@@ -224,6 +234,15 @@ public class WhiteboardClient {
         }
     }
 
+    private void updateFollowerListUI() {
+        // This could update a status bar, a label, or add to the chat panel
+        chatPanel.receiveMessage("--- Connected follower servers: " + followerIps.size() + " ---");
+        for (String ip : followerIps) {
+            chatPanel.receiveMessage("    → " + ip);
+        }
+    }
+    
+
     // Method to register with the server
     private void registerUser(String username) {
         this.username = username;
@@ -244,6 +263,27 @@ public class WhiteboardClient {
         SwingUtilities.invokeLater(() -> 
             JOptionPane.showMessageDialog(frame, message, "Error", JOptionPane.ERROR_MESSAGE));
     }
+
+    private void updateFollowerList(String followerListString) {
+        // Clear the current list
+        followerIps.clear();
+        
+        // Parse the new list (format: "ip1 * ip2 * ip3")
+        if (followerListString != null && !followerListString.isEmpty()) {
+            String[] ips = followerListString.split("\\s*\\*\\s*");
+            for (String ip : ips) {
+                if (!ip.trim().isEmpty()) {
+                    followerIps.add(ip.trim());
+                }
+            }
+        }
+        
+        // Log the updated follower list
+        System.out.println("Updated follower server list: " + followerIps);
+
+        updateFollowerListUI();
+    }
+    
 
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
