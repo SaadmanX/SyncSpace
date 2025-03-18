@@ -4,8 +4,10 @@ com\syncspace\client\WhiteboardClient$2.class
 com\syncspace\common\Message.class
 com\syncspace\server\Server.class
 com\syncspace\common\Message$MessageType.class
+com\syncspace\server\Server$ServerConnectionType.class
 com\syncspace\client\ui\ChatPanel$1.class
 com\syncspace\client\ui\ChatPanel.class
+com\syncspace\server\Server$ServerConnection.class
 com\syncspace\common\WhiteboardAction.class
 com\syncspace\client\WhiteboardClient.class
 com\syncspace\server\UserManager.class

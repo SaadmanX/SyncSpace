@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.UnknownHostException;
@@ -37,7 +36,7 @@ public class Server {
     private final ScheduledExecutorService schedulerThreadPool;
     
     // Server connection management
-    // private final List<ServerConnection> serverConnections = new CopyOnWriteArrayList<>();
+    private final List<ServerConnection> serverConnections = new CopyOnWriteArrayList<>();
     // Track followers
     private final List<String> followerIps = new CopyOnWriteArrayList<>();
 
@@ -47,7 +46,6 @@ public class Server {
     private final Object connectLock = new Object();
     private volatile boolean connectingToLeader = false;
     private ScheduledFuture<?> leaderConnectFuture = null;
-    private volatile boolean electionInProgress = false;
 
     /**
      * Constructor for leader server.
@@ -92,11 +90,13 @@ public class Server {
         
         // Initialize server based on role
         if (isLeader()) {
-            initFollowerManagement();
-            start();
+            startServerToServerListener();
         } else {
-            startLeaderListener();
+            connectToLeader();
         }
+        
+        // Start ping scheduler
+        // startPingScheduler();
     }
     
     /**
@@ -108,175 +108,109 @@ public class Server {
         String serverType = isLeader() ? "[LEADER]" : "[FOLLOWER]";
         System.out.println(timestamp + " " + serverType + " " + message);
     }
-
+    
     /**
-     * Starts a listener for leader messages (for follower mode).
+     * Starts the server-to-server listener (leader mode).
      */
-    private void startLeaderListener() {
-        if (isLeader()) return;
+    private void startServerToServerListener() {
+        if (!isLeader()) return;
         
         connectionThreadPool.execute(() -> {
-            try (ServerSocket leaderListenerSocket = new ServerSocket(SERVER_PORT)) {
-                logMessage("Follower is listening for leader messages on port " + SERVER_PORT);
+            try (ServerSocket serverSocket = new ServerSocket(SERVER_PORT)) {
+                serverServerSocket = serverSocket;
+                logMessage("Leader server is listening for followers on port " + SERVER_PORT);
                 
-                while (!Thread.currentThread().isInterrupted() && !isLeader()) {
+                while (!Thread.currentThread().isInterrupted()) {
                     try {
-                        Socket leaderSocket = leaderListenerSocket.accept();
-                        String incomingIp = leaderSocket.getInetAddress().getHostAddress();
+                        logMessage("Waiting for follower connections...");
+                        Socket followerSocket = serverSocket.accept();
+                        String followerIp = followerSocket.getInetAddress().getHostAddress();
+                        logMessage("NEW FOLLOWER CONNECTED! IP: " + followerIp);
                         
-                        if (incomingIp.equals(leaderIp)) {
-                            logMessage("Received connection from leader: " + leaderIp);
-                            
-                            // Handle leader messages
-                            handleLeaderMessages(leaderSocket);
-                        } else {
-                            logMessage("Rejected connection from non-leader server: " + incomingIp);
-                            leaderSocket.close();
-                        }
+                        // Create and register the connection
+                        ServerConnection connection = new ServerConnection(
+                            followerSocket, followerIp, ServerConnectionType.FOLLOWER);
+                        serverConnections.add(connection);
+                        followerIps.add(followerIp);
+                        sendFollowersToClients();
+                        pingFollowers();
+
+                        // Start connection handler
+                        connection.start();
                     } catch (IOException e) {
-                        if (!leaderListenerSocket.isClosed()) {
-                            logMessage("ERROR in leader listener: " + e.getMessage());
+                        if (!serverSocket.isClosed()) {
+                            logMessage("ERROR accepting follower connection: " + e.getMessage());
                         } else {
                             break;
                         }
                     }
                 }
             } catch (IOException e) {
-                logMessage("ERROR starting leader listener: " + e.getMessage());
+                logMessage("ERROR in server-to-server listener: " + e.getMessage());
             }
         });
     }
-
-    /**
-     * Handles messages from the leader.
-     */
-    private void handleLeaderMessages(Socket leaderSocket) {
-        connectionThreadPool.execute(() -> {
-            try (ObjectInputStream in = new ObjectInputStream(leaderSocket.getInputStream())) {
-                leaderSocket.setSoTimeout(30000); 
-                while (!Thread.currentThread().isInterrupted() && !isLeader()) {
-                    String message = (String) in.readObject();
-                    String[] parts = message.split(":", 2);
-                    String messageType = parts[0];
-                    String content = parts.length > 1 ? parts[1] : "";
-                    
-                    switch (messageType) {
-                        case "PING":
-                            // Update the leader timestamp to indicate the leader is alive
-                            logMessage("Received PING from leader");
-                            break;
-                        case "LEADER_INFO":
-                            // Update follower list
-                            updateFollowerList(content);
-                            break;
-                        case "LEADERSHIP_CHANGE":
-                            // Handle leadership change
-                            handleLeadershipChange(content);
-                            break;
-                        case "ELECTION":
-                            handleElectionMessage(content);
-                            break;
-                        case "ELECTION_RESPONSE":
-                            // Reset election timeout - leader is responsive
-                            electionInProgress = false;
-                            logMessage("Received election response from: " + content);
-                            break;
-                        default:
-                            logMessage("Received unknown message type from leader: " + messageType);
-                    }
-                }
-            } catch (IOException | ClassNotFoundException e) {
-                logMessage("ERROR reading from leader: " + e.getMessage());
-                // Trigger reconnection or election if leader connection is lost
-                handleLeaderDisconnect();
-                
-            }
-        });
-    }
-
-    /**
-     * Updates the follower list based on leader information.
-     */
-    private void updateFollowerList(String leaderInfo) {
-        String[] parts = leaderInfo.split("\\|");
-        if (parts.length > 1) {
-            String currentLeader = parts[0];
-            String[] followers = parts[1].split(",");
-            
-            // Verify leader is the same
-            if (!currentLeader.equals(leaderIp)) {
-                logMessage("WARNING: Leader IP mismatch in follower list update");
-                leaderIp = currentLeader; // Update leader IP if it changed
-            }
-            
-            // Update follower list
-            followerIps.clear();
-            for (String follower : followers) {
-                if (!follower.isEmpty() && !follower.equals(serverIp)) {
-                    followerIps.add(follower);
-                }
-            }
-            
-            logMessage("Updated follower list from leader: " + followerIps);
-        }
-    }
-
     
     /**
-     * Manages follower connections and their health.
+     * Connects to the leader server (follower mode).
      */
-    private void initFollowerManagement() {
-        if (!isLeader()) return;
+    private void connectToLeader() {
+        // If already leader or a connection attempt is in progress, return.
+        if (isLeader()) return;
+        synchronized (connectLock) {
+            if (connectingToLeader) return;
+            connectingToLeader = true;
+        }
         
-        // Schedule regular pings to followers
-        schedulerThreadPool.scheduleAtFixedRate(() -> {
-            sendFollowerListToFollowers();
-        }, 0, 5, TimeUnit.SECONDS);
+        followerIps.clear();
         
-        // Schedule health checks
-        schedulerThreadPool.scheduleAtFixedRate(() -> {
-            checkFollowerHealth();
-        }, 10, 10, TimeUnit.SECONDS);
-    }
-
-    /**
-     * Checks follower health and removes unresponsive followers.
-     */
-    private void checkFollowerHealth() {
-        if (!isLeader()) return;
-        
-        List<String> unhealthyFollowers = new ArrayList<>();
-        
-        for (String followerIp : followerIps) {
-            if (!isFollowerResponsive(followerIp)) {
-                unhealthyFollowers.add(followerIp);
+        // Schedule a repeated connection attempt
+        leaderConnectFuture = schedulerThreadPool.scheduleWithFixedDelay(new Runnable() {
+            private int attemptCount = 0;
+            
+            @Override
+            public void run() {
+                // If we're already a leader, cancel further attempts.
+                if (isLeader()) {
+                    cancelLeaderConnectTask();
+                    return;
+                }
+                
+                logMessage("Attempting to connect to leader at " + leaderIp + ":" + SERVER_PORT +
+                           " (Attempt " + (attemptCount + 1) + "/" + MAX_RECONNECT_ATTEMPTS + ")");
+                
+                try {
+                    Socket leaderSocket = new Socket(leaderIp, SERVER_PORT);
+                    logMessage("CONNECTED TO LEADER SUCCESSFULLY at " + leaderIp);
+                    
+                    // Remove any existing leader connections
+                    for (ServerConnection conn : new ArrayList<>(serverConnections)) {
+                        if (conn.getType() == ServerConnectionType.LEADER) {
+                            conn.close();
+                            serverConnections.remove(conn);
+                        }
+                    }
+                    
+                    // Create and register the leader connection
+                    ServerConnection connection = new ServerConnection(
+                            leaderSocket, leaderIp, ServerConnectionType.LEADER);
+                    serverConnections.add(connection);
+                    connection.start();
+                    
+                    // Connection succeeded, cancel further attempts.
+                    cancelLeaderConnectTask();
+                } catch (IOException e) {
+                    attemptCount++;
+                    logMessage("ERROR connecting to leader: " + e.getMessage());
+                    if (attemptCount >= MAX_RECONNECT_ATTEMPTS) {
+                        logMessage("Maximum reconnection attempts reached. Starting election...");
+                        cancelLeaderConnectTask();
+                        startElection();
+                    }
+                    // Otherwise, the scheduled task will try again after the delay.
+                }
             }
-        }
-        
-        // Remove unhealthy followers
-        for (String ip : unhealthyFollowers) {
-            followerIps.remove(ip);
-            logMessage("Removed unresponsive follower: " + ip);
-        }
-        
-        if (!unhealthyFollowers.isEmpty()) {
-            sendFollowerListToFollowers();
-            sendFollowersToClients();
-        }
-    }
-
-    /**
-     * Checks if a follower is responsive.
-     */
-    private boolean isFollowerResponsive(String followerIp) {
-        // Simple ping implementation - just try to connect
-        try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress(followerIp, SERVER_PORT), 2000); // 2-second timeout
-            return true;
-        } catch (IOException e) {
-            logMessage("Follower at " + followerIp + " is unresponsive: " + e.getMessage());
-            return false;
-        }
+        }, 0, RECONNECT_DELAY_MS, TimeUnit.MILLISECONDS);
     }
     
     private void cancelLeaderConnectTask() {
@@ -303,155 +237,126 @@ public class Server {
             client.sendMessage(messageContent);
         }
     }
-        
+    
     /**
-     * Sends the current list of follower IPs to all followers.
+     * Starts the ping scheduler.
      */
-    private void sendFollowerListToFollowers() {
+    // private void startPingScheduler() {
+    //     logMessage("Starting ping scheduler - will ping every 5 seconds");
+    //     schedulerThreadPool.scheduleAtFixedRate(() -> {
+    //         if (isLeader()) {
+    //             pingFollowers();
+    //         } else {
+    //             pingLeader();
+    //         }
+    //     }, 0, 5, TimeUnit.SECONDS);
+
+    //     schedulerThreadPool.scheduleAtFixedRate(this::logServerState, 
+    //         1, 3, TimeUnit.SECONDS);
+    // }
+    
+    /**
+     * Sends ping messages to all followers (leader mode).
+     */
+    private void pingFollowers() {
         if (!isLeader()) return;
-        
-        String followerList = String.join(",", followerIps);
-        String leaderInfo = serverIp + "|" + followerList;
-        
-        logMessage("Sending leader info to all followers: " + leaderInfo);
-        
-        for (String followerIp : followerIps) {
-            sendServerMessage(followerIp, "LEADER_INFO", leaderInfo);
-        }
-    }
 
-    private void handleLeadershipChange(String newLeaderIp) {
-        logMessage("Received leadership change notification. New leader: " + newLeaderIp);
-        if (!newLeaderIp.equals(serverIp)) {
-            followNewLeader(newLeaderIp);
+        // Build follower IP list from active connections
+        followerIps.clear();
+        for (ServerConnection conn : serverConnections) {
+            if (conn.getType() == ServerConnectionType.FOLLOWER) {
+                followerIps.add(conn.getRemoteIp());
+            }
         }
-    }
-    
-    
-
-    /**
-     * Handles leader disconnect by starting reconnection or election.
-     */
-    private void handleLeaderDisconnect() {
-        if (isLeader()) return;
         
-        logMessage("Lost connection to leader, initiating reconnection...");
+        logMessage("LEADER PING - Current leader IP: " + serverIp);
+        logMessage("Total followers to ping: " + followerIps.size());
         
-        // Cancel any ongoing connection attempts
-        cancelLeaderConnectTask();
+        if (followerIps.isEmpty()) {
+            logMessage("No followers connected, skipping ping");
+            return;
+        }
         
-        // Schedule reconnection attempts
-        leaderConnectFuture = schedulerThreadPool.scheduleWithFixedDelay(new Runnable() {
-            private int attemptCount = 0;
-            
-            @Override
-            public void run() {
-                if (isLeader()) {
-                    cancelLeaderConnectTask();
-                    return;
-                }
-                
-                logMessage("Attempting to reconnect to leader " + leaderIp + 
-                        " (Attempt " + (attemptCount + 1) + "/" + MAX_RECONNECT_ATTEMPTS + ")");
-                
-                if (isServerReachable(leaderIp)) {
-                    logMessage("Leader is reachable, reconnecting...");
-                    startLeaderListener();
-                    cancelLeaderConnectTask();
-                } else {
-                    attemptCount++;
-                    if (attemptCount >= MAX_RECONNECT_ATTEMPTS) {
-                        logMessage("Max reconnection attempts reached, starting election...");
-                        cancelLeaderConnectTask();
-                        startElection();
-                    }
+        String pingMessage = String.join(" * ", followerIps);
+        
+        for (ServerConnection conn : new ArrayList<>(serverConnections)) {
+            if (conn.getType() == ServerConnectionType.FOLLOWER) {
+                try {
+                    logMessage("Sending ping to follower: " + conn.getRemoteIp());
+                    conn.sendMessage(pingMessage);
+                    logMessage("Ping sent successfully to follower: " + conn.getRemoteIp());
+                } catch (IOException e) {
+                    logMessage("ERROR pinging follower " + conn.getRemoteIp() + ": " + e.getMessage());
                 }
             }
-        }, 0, RECONNECT_DELAY_MS, TimeUnit.MILLISECONDS);
-    }
-
-    /**
-     * Checks if a server is reachable.
-     */
-    private boolean isServerReachable(String serverIp) {
-        try {
-            InetAddress address = InetAddress.getByName(serverIp);
-            return address.isReachable(3000); // 3-second timeout
-        } catch (IOException e) {
-            return false;
         }
     }
-
-
+    
     /**
-     * Improved election process using Bully algorithm.
+     * Sends a ping message to the leader (follower mode).
+     */
+    // private void pingLeader() {
+    //     if (isLeader()) return;
+
+    //     ServerConnection leaderConnection = getLeaderConnection();
+        
+    //     if (leaderConnection == null) {
+    //         logMessage("Not connected to leader, cannot send ping");
+    //         connectToLeader();
+    //         return;
+    //     }
+        
+    //     try {
+    //         logMessage("Sending ping to leader at " + leaderConnection.getRemoteIp() + 
+    //                 " with our IP: " + serverIp);
+    //         leaderConnection.sendMessage(serverIp);
+    //         logMessage("Ping sent successfully to leader");
+    //     } catch (IOException e) {
+    //         logMessage("ERROR pinging leader: " + e.getMessage());
+    //     }
+    // }
+    
+    /**
+     * Retrieves the leader connection (follower mode).
+     */
+    private ServerConnection getLeaderConnection() {
+        for (ServerConnection conn : serverConnections) {
+            if (conn.getType() == ServerConnectionType.LEADER) {
+                return conn;
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * Starts the election process.
      */
     public synchronized void startElection() {
-        if (electionInProgress) return;
-
-        electionInProgress = true;
-        try {
-
-            logMessage("========== STARTING ELECTION PROCESS (BULLY ALGORITHM) ==========");
-            
-            // All server IPs including this server
-            List<String> allServerIps = new ArrayList<>(followerIps);
-            // allServerIps.add(serverIp);
-            
-            // Sort IPs in descending order
-            allServerIps.sort((ip1, ip2) -> ip2.compareTo(ip1));
-            
-            logMessage("Servers participating in election (in priority order): " + allServerIps);
-            
-            // First check if there are higher priority servers
-            boolean higherPriorityExists = false;
-            
-            for (String ip : allServerIps) {
-                if (ip.compareTo(serverIp) > 0) {
-                    // Higher priority server exists, send election message
-                    higherPriorityExists = true;
-                    if (sendServerMessage(ip, "ELECTION", serverIp)) {
-                        logMessage("Sent election message to higher priority server: " + ip);
-                    }
-                }
+        logMessage("========== STARTING ELECTION PROCESS ==========");
+        
+        List<String> allServerIps = new ArrayList<>(followerIps);
+        allServerIps.add(serverIp);
+        
+        logMessage("Servers participating in election: " + allServerIps);
+        
+        String highestIp = "";
+        for (String ip : allServerIps) {
+            if (ip.compareTo(highestIp) > 0) {
+                highestIp = ip;
             }
-            
-            if (!higherPriorityExists) {
-                // No higher priority server, declare self as leader
-                logMessage("No higher priority servers found, declaring self as LEADER");
-                becomeLeader();
-            } else {
-                // Wait for response from higher priority servers
-                logMessage("Waiting for higher priority servers to respond...");
-                
-                // Schedule a timeout to check if higher priority servers respond
-                schedulerThreadPool.schedule(() -> {
-                    synchronized (Server.this) {
-                        if (!isLeader()) {
-                            logMessage("No response from higher priority servers, declaring self as LEADER");
-                            becomeLeader();
-                        }
-                    }
-                }, 5, TimeUnit.SECONDS);
-            } 
-        } finally {
-            electionInProgress = false;
         }
-    }
-
-    /**
-     * Handles an election message from another server.
-     */
-    private void handleElectionMessage(String senderIp) {
-        logMessage("Received ELECTION message from " + senderIp);
         
-        // Send response to acknowledge the election message
-        sendServerMessage(senderIp, "ELECTION_RESPONSE", serverIp);
+        logMessage("Election result: Highest IP is " + highestIp);
         
-        // Start own election if not already in progress
-        if (!connectingToLeader) {
-            startElection();
+        if (highestIp.equals(serverIp)) {
+            logMessage("THIS SERVER WON THE ELECTION!");
+            becomeLeader();
+        } else {
+            logMessage("Another server won the election: " + highestIp);
+            followNewLeader(highestIp);
         }
+        
+        logMessage("========== ELECTION PROCESS COMPLETE ==========");
     }
     
     /**
@@ -460,7 +365,7 @@ public class Server {
     private synchronized void followNewLeader(String newLeaderIp) {
         actingAsLeader.set(false);
         this.leaderIp = newLeaderIp;
-        startLeaderListener();
+        connectToLeader();
     }
 
     /**
@@ -474,7 +379,10 @@ public class Server {
         
         logMessage("TRANSITIONING TO LEADER MODE");
         
-        notifyLeadershipChange();
+        for (ServerConnection conn : new ArrayList<>(serverConnections)) {
+            conn.close();
+        }
+        serverConnections.clear();
         
         followerIps.remove(serverIp);
         logMessage("Removed self from follower list: " + serverIp);
@@ -483,32 +391,46 @@ public class Server {
         
         broadcastToAll("SERVER_LEADERSHIP_CHANGE", null);
         
-        initFollowerManagement();
+        startServerToServerListener();
         start();
         
         logMessage("Successfully transitioned to leader mode");
     }
-
-    /**
-     * Notifies all servers about this server becoming the leader.
-     */
-    private void notifyLeadershipChange() {
-        logMessage("Broadcasting leadership change to all servers");
-        
-        // Create message with new leader information
-        String leadershipMessage = serverIp;
-        
-        for (String serverIp : followerIps) {
-            sendServerMessage(serverIp, "LEADERSHIP_CHANGE", leadershipMessage);
-        }
-        
-        // Update leader information in clients
-        for (ClientHandler client : connectedClients) {
-            client.sendMessage("SERVER_LEADERSHIP_CHANGE:" + serverIp);
-        }
-    }
-
     
+    /**
+     * Logs the complete state of the server.
+     */
+    // private void logServerState() {
+    //     StringBuilder state = new StringBuilder();
+    //     state.append("\n=============== SERVER STATE ===============\n");
+    //     state.append("Role: ").append(isLeader() ? "LEADER" : "FOLLOWER").append("\n");
+    //     state.append("Server IP: ").append(serverIp).append("\n");
+        
+    //     if (isLeader()) {
+    //         state.append("Leader status: This server is the leader\n");
+    //     } else {
+    //         ServerConnection leaderConn = getLeaderConnection();
+    //         state.append("Leader IP: ").append(leaderIp).append("\n");
+    //         state.append("Leader connection: ").append(leaderConn != null ? "CONNECTED" : "DISCONNECTED").append("\n");
+    //     }
+        
+    //     state.append("Client connections: ").append(connectedClients.size()).append("\n");
+    //     state.append("Server connections: ").append(serverConnections.size()).append("\n");
+        
+    //     state.append("Follower IPs (").append(followerIps.size()).append("):");
+    //     if (followerIps.isEmpty()) {
+    //         state.append(" None\n");
+    //     } else {
+    //         state.append("\n");
+    //         for (String ip : followerIps) {
+    //             state.append("  - ").append(ip).append("\n");
+    //         }
+    //     }
+        
+    //     state.append("===========================================");
+    //     logMessage(state.toString());
+    // }
+
     /**
      * Starts the client server.
      */
@@ -572,30 +494,26 @@ public class Server {
     public List<String> getFollowerIps() {
         return new ArrayList<>(followerIps);
     }
-        
+    
+    /**
+     * Gets the leader output stream (follower mode).
+     */
+    public ObjectOutputStream getLeaderOutputStream() {
+        ServerConnection leaderConn = getLeaderConnection();
+        return leaderConn != null ? leaderConn.getOutputStream() : null;
+    }
+    
     /**
      * Shuts down the server and releases resources.
      */
     public void shutdown() {
         logMessage("Shutting down server...");
         
-        // Send disconnect messages if leader
-        if (isLeader()) {
-            for (String followerIp : followerIps) {
-                sendServerMessage(followerIp, "LEADER_SHUTDOWN", serverIp);
-            }
-        } 
-        for (ClientHandler client : connectedClients) {
-            try {
-                client.close(); // Make sure ClientHandler has a close method
-            } catch (Exception e) {
-                logMessage("Error closing client handler: " + e.getMessage());
-            }
+        for (ServerConnection conn : new ArrayList<>(serverConnections)) {
+            conn.close();
         }
-        connectedClients.clear();
+        serverConnections.clear();
         
-        
-        // Close server sockets
         try {
             if (clientServerSocket != null && !clientServerSocket.isClosed()) {
                 clientServerSocket.close();
@@ -612,48 +530,157 @@ public class Server {
             logMessage("Error closing server socket: " + e.getMessage());
         }
         
-        // Shutdown thread pools
         schedulerThreadPool.shutdownNow();
         connectionThreadPool.shutdownNow();
         
-        try {
-            if (!schedulerThreadPool.awaitTermination(5, TimeUnit.SECONDS)) {
-                logMessage("Warning: Scheduler thread pool did not terminate in time");
-            }
-            if (!connectionThreadPool.awaitTermination(5, TimeUnit.SECONDS)) {
-                logMessage("Warning: Connection thread pool did not terminate in time");
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            logMessage("Shutdown interrupted: " + e.getMessage());
-        }
-        
         logMessage("Server shutdown complete");
     }
-
+    
     /**
-     * Sends a message to another server (leader or follower).
-     * @param targetIp IP address of the target server
-     * @param messageType Type of message (e.g., "PING", "LEADER_CHANGE")
-     * @param messageContent Content of the message
-     * @return true if message was sent successfully, false otherwise
+     * Server connection types.
      */
-    private boolean sendServerMessage(String targetIp, String messageType, String messageContent) {
-        try (Socket socket = new Socket(targetIp, SERVER_PORT);
-            ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream())) {
+    private enum ServerConnectionType {
+        LEADER,
+        FOLLOWER
+    }
+    
+    /**
+     * Handles server-to-server connections.
+     */
+    private class ServerConnection {
+        private final Socket socket;
+        private final String remoteIp;
+        private final ServerConnectionType type;
+        private ObjectOutputStream outputStream;
+        private ObjectInputStream inputStream;
+        
+        public ServerConnection(Socket socket, String remoteIp, ServerConnectionType type) {
+            this.socket = socket;
+            this.remoteIp = remoteIp;
+            this.type = type;
+        }
+        
+        /**
+         * Starts the connection handler.
+         */
+        public void start() {
+            connectionThreadPool.execute(() -> {
+                try {
+                    outputStream = new ObjectOutputStream(socket.getOutputStream());
+                    outputStream.flush();
+                    inputStream = new ObjectInputStream(socket.getInputStream());
+                    
+                    logMessage("Communication streams established with " + type.name().toLowerCase() + ": " + remoteIp);
+                    
+                    while (!Thread.currentThread().isInterrupted() && !socket.isClosed()) {
+                        try {
+                            Object message = inputStream.readObject();
+                            handleMessage(message);
+                        } catch (ClassNotFoundException e) {
+                            logMessage("ERROR: Received unknown object type: " + e.getMessage());
+                        }
+                    }
+                } catch (IOException e) {
+                    String role = type == ServerConnectionType.LEADER ? "leader" : "follower";
+                    logMessage("Connection to " + role + " lost: " + e.getMessage());
+                    
+                    if (type == ServerConnectionType.LEADER && !isLeader()) {
+                        connectToLeader();
+                    }
+                } finally {
+                    close();
+                }
+            });
+        }
+        
+        /**
+         * Handles incoming messages.
+         */
+        private void handleMessage(Object message) {
+            if (message instanceof String) {
+                String typeName = type == ServerConnectionType.LEADER ? "leader" : "follower";
+                String pingMessage = (String) message;
+                logMessage("PING RECEIVED from " + typeName + " [" + remoteIp + "]: " + pingMessage);
+                
+                // If leader, update follower list based on ping message
+                if (type == ServerConnectionType.LEADER && pingMessage.contains("*")) {
+                    followerIps.clear();
+                    String[] ips = pingMessage.split("\\s*\\*\\s*");
+                    for (String ip : ips) {
+                        if (!ip.trim().isEmpty()) {
+                            followerIps.add(ip.trim());
+                        }
+                    }
+                    logMessage("Updated follower list from leader: " + followerIps);
+                }
+            } else {
+                logMessage("Received unknown message type: " + message.getClass().getName());
+            }
+        }
+        
+        /**
+         * Sends a message to the remote server.
+         */
+        public void sendMessage(Object message) throws IOException {
+            if (outputStream != null) {
+                synchronized (outputStream) {
+                    outputStream.writeObject(message);
+                    outputStream.flush();
+                }
+            } else {
+                throw new IOException("Output stream is not initialized");
+            }
+        }
+        
+        /**
+         * Closes the connection and cleans up resources.
+         */
+        public void close() {
+            try {
+                if (outputStream != null) {
+                    outputStream.close();
+                }
+                if (inputStream != null) {
+                    inputStream.close();
+                }
+                if (socket != null && !socket.isClosed()) {
+                    socket.close();
+                }
+            } catch (IOException e) {
+                logMessage("Error closing connection resources: " + e.getMessage());
+            }
             
-            String fullMessage = messageType + ":" + messageContent;
-            out.writeObject(fullMessage);
-            out.flush();
-            
-            logMessage("Sent " + messageType + " message to server at " + targetIp);
-            return true;
-        } catch (IOException e) {
-            logMessage("ERROR sending message to server at " + targetIp + ": " + e.getMessage());
-            return false;
+            serverConnections.remove(this);
+            String typeName = type == ServerConnectionType.LEADER ? "Leader" : "Follower";
+            logMessage(typeName + " " + remoteIp + " disconnected. Active server connections: " + serverConnections.size());
+            followerIps.remove(getRemoteIp());
+            if (isLeader() && type == ServerConnectionType.FOLLOWER) {
+                sendFollowersToClients();
+                pingFollowers();
+            }
+        }
+        
+        /**
+         * Gets the remote IP address.
+         */
+        public String getRemoteIp() {
+            return remoteIp;
+        }
+        
+        /**
+         * Gets the connection type.
+         */
+        public ServerConnectionType getType() {
+            return type;
+        }
+        
+        /**
+         * Gets the output stream.
+         */
+        public ObjectOutputStream getOutputStream() {
+            return outputStream;
         }
     }
-
     
     /**
      * Main method.
@@ -664,6 +691,7 @@ public class Server {
             server = new Server(args[0]);
         } else {
             server = new Server();
+            server.start();
         }
         Runtime.getRuntime().addShutdownHook(new Thread(server::shutdown));
     }
