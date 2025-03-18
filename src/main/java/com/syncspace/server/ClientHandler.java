@@ -66,6 +66,7 @@ public class ClientHandler extends Thread {
                 e.printStackTrace();
             }
             server.removeClient(this);
+            close();
         }
     }
 
@@ -124,5 +125,51 @@ public class ClientHandler extends Thread {
     
     private void broadcastToAll(Message message) {
         server.broadcastToAll(message, this);
+    }
+
+    /**
+     * Closes the client handler and releases all resources.
+     * This method is safe to call multiple times.
+     */
+    public void close() {
+        // Notify the user manager if a username is associated with this client
+        if (username != null) {
+            userManager.removeUser(username);
+            System.out.println("User " + username + " disconnected");
+            
+            // Notify other clients that this user has left
+            Message leaveMessage = new Message(Message.MessageType.USER_LEAVE, 
+                "has left the whiteboard session", username);
+            broadcastToAll(leaveMessage);
+            
+            // Clear the username to prevent multiple notifications
+            username = null;
+        }
+        
+        // Close resources
+        try {
+            if (inputStream != null) {
+                inputStream.close();
+                inputStream = null;
+            }
+            if (outputStream != null) {
+                outputStream.close();
+                outputStream = null;
+            }
+            if (socket != null && !socket.isClosed()) {
+                socket.close();
+                socket = null;
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        
+        // Remove from server's client list
+        server.removeClient(this);
+        
+        // Interrupt the thread if it's still running
+        if (this.isAlive()) {
+            this.interrupt();
+        }
     }
 }
