@@ -96,7 +96,7 @@ public class Server {
         }
         
         // Start ping scheduler
-        startPingScheduler();
+        // startPingScheduler();
     }
     
     /**
@@ -133,6 +133,7 @@ public class Server {
                         serverConnections.add(connection);
                         followerIps.add(followerIp);
                         sendFollowersToClients();
+                        pingFollowers();
 
                         // Start connection handler
                         connection.start();
@@ -240,19 +241,19 @@ public class Server {
     /**
      * Starts the ping scheduler.
      */
-    private void startPingScheduler() {
-        logMessage("Starting ping scheduler - will ping every 5 seconds");
-        schedulerThreadPool.scheduleAtFixedRate(() -> {
-            if (isLeader()) {
-                pingFollowers();
-            } else {
-                pingLeader();
-            }
-        }, 0, 5, TimeUnit.SECONDS);
+    // private void startPingScheduler() {
+    //     logMessage("Starting ping scheduler - will ping every 5 seconds");
+    //     schedulerThreadPool.scheduleAtFixedRate(() -> {
+    //         if (isLeader()) {
+    //             pingFollowers();
+    //         } else {
+    //             pingLeader();
+    //         }
+    //     }, 0, 5, TimeUnit.SECONDS);
 
-        schedulerThreadPool.scheduleAtFixedRate(this::logServerState, 
-            1, 3, TimeUnit.SECONDS);
-    }
+    //     schedulerThreadPool.scheduleAtFixedRate(this::logServerState, 
+    //         1, 3, TimeUnit.SECONDS);
+    // }
     
     /**
      * Sends ping messages to all followers (leader mode).
@@ -294,26 +295,26 @@ public class Server {
     /**
      * Sends a ping message to the leader (follower mode).
      */
-    private void pingLeader() {
-        if (isLeader()) return;
+    // private void pingLeader() {
+    //     if (isLeader()) return;
 
-        ServerConnection leaderConnection = getLeaderConnection();
+    //     ServerConnection leaderConnection = getLeaderConnection();
         
-        if (leaderConnection == null) {
-            logMessage("Not connected to leader, cannot send ping");
-            connectToLeader();
-            return;
-        }
+    //     if (leaderConnection == null) {
+    //         logMessage("Not connected to leader, cannot send ping");
+    //         connectToLeader();
+    //         return;
+    //     }
         
-        try {
-            logMessage("Sending ping to leader at " + leaderConnection.getRemoteIp() + 
-                    " with our IP: " + serverIp);
-            leaderConnection.sendMessage(serverIp);
-            logMessage("Ping sent successfully to leader");
-        } catch (IOException e) {
-            logMessage("ERROR pinging leader: " + e.getMessage());
-        }
-    }
+    //     try {
+    //         logMessage("Sending ping to leader at " + leaderConnection.getRemoteIp() + 
+    //                 " with our IP: " + serverIp);
+    //         leaderConnection.sendMessage(serverIp);
+    //         logMessage("Ping sent successfully to leader");
+    //     } catch (IOException e) {
+    //         logMessage("ERROR pinging leader: " + e.getMessage());
+    //     }
+    // }
     
     /**
      * Retrieves the leader connection (follower mode).
@@ -399,36 +400,36 @@ public class Server {
     /**
      * Logs the complete state of the server.
      */
-    private void logServerState() {
-        StringBuilder state = new StringBuilder();
-        state.append("\n=============== SERVER STATE ===============\n");
-        state.append("Role: ").append(isLeader() ? "LEADER" : "FOLLOWER").append("\n");
-        state.append("Server IP: ").append(serverIp).append("\n");
+    // private void logServerState() {
+    //     StringBuilder state = new StringBuilder();
+    //     state.append("\n=============== SERVER STATE ===============\n");
+    //     state.append("Role: ").append(isLeader() ? "LEADER" : "FOLLOWER").append("\n");
+    //     state.append("Server IP: ").append(serverIp).append("\n");
         
-        if (isLeader()) {
-            state.append("Leader status: This server is the leader\n");
-        } else {
-            ServerConnection leaderConn = getLeaderConnection();
-            state.append("Leader IP: ").append(leaderIp).append("\n");
-            state.append("Leader connection: ").append(leaderConn != null ? "CONNECTED" : "DISCONNECTED").append("\n");
-        }
+    //     if (isLeader()) {
+    //         state.append("Leader status: This server is the leader\n");
+    //     } else {
+    //         ServerConnection leaderConn = getLeaderConnection();
+    //         state.append("Leader IP: ").append(leaderIp).append("\n");
+    //         state.append("Leader connection: ").append(leaderConn != null ? "CONNECTED" : "DISCONNECTED").append("\n");
+    //     }
         
-        state.append("Client connections: ").append(connectedClients.size()).append("\n");
-        state.append("Server connections: ").append(serverConnections.size()).append("\n");
+    //     state.append("Client connections: ").append(connectedClients.size()).append("\n");
+    //     state.append("Server connections: ").append(serverConnections.size()).append("\n");
         
-        state.append("Follower IPs (").append(followerIps.size()).append("):");
-        if (followerIps.isEmpty()) {
-            state.append(" None\n");
-        } else {
-            state.append("\n");
-            for (String ip : followerIps) {
-                state.append("  - ").append(ip).append("\n");
-            }
-        }
+    //     state.append("Follower IPs (").append(followerIps.size()).append("):");
+    //     if (followerIps.isEmpty()) {
+    //         state.append(" None\n");
+    //     } else {
+    //         state.append("\n");
+    //         for (String ip : followerIps) {
+    //             state.append("  - ").append(ip).append("\n");
+    //         }
+    //     }
         
-        state.append("===========================================");
-        logMessage(state.toString());
-    }
+    //     state.append("===========================================");
+    //     logMessage(state.toString());
+    // }
 
     /**
      * Starts the client server.
@@ -654,7 +655,8 @@ public class Server {
             logMessage(typeName + " " + remoteIp + " disconnected. Active server connections: " + serverConnections.size());
             followerIps.remove(getRemoteIp());
             if (isLeader() && type == ServerConnectionType.FOLLOWER) {
-                schedulerThreadPool.schedule(() -> sendFollowersToClients(), 100, TimeUnit.MILLISECONDS);
+                sendFollowersToClients();
+                pingFollowers();
             }
         }
         
