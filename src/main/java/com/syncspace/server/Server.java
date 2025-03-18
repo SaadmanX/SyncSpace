@@ -331,33 +331,107 @@ public class Server {
     /**
      * Starts the election process.
      */
-    public synchronized void startElection() {
-        logMessage("========== STARTING ELECTION PROCESS ==========");
+    // public synchronized void startElection() {
+    //     logMessage("========== STARTING ELECTION PROCESS ==========");
         
-        List<String> allServerIps = new ArrayList<>(followerIps);
-        allServerIps.add(serverIp);
+    //     List<String> allServerIps = new ArrayList<>(followerIps);
+    //     allServerIps.add(serverIp);
         
-        logMessage("Servers participating in election: " + allServerIps);
+    //     logMessage("Servers participating in election: " + allServerIps);
         
-        String highestIp = "";
-        for (String ip : allServerIps) {
-            if (ip.compareTo(highestIp) > 0) {
-                highestIp = ip;
+    //     String highestIp = "";
+    //     for (String ip : allServerIps) {
+    //         if (ip.compareTo(highestIp) > 0) {
+    //             highestIp = ip;
+    //         }
+    //     }
+        
+    //     logMessage("Election result: Highest IP is " + highestIp);
+        
+    //     if (highestIp.equals(serverIp)) {
+    //         logMessage("THIS SERVER WON THE ELECTION!");
+    //         becomeLeader();
+    //     } else {
+    //         logMessage("Another server won the election: " + highestIp);
+    //         followNewLeader(highestIp);
+    //     }
+        
+    //     logMessage("========== ELECTION PROCESS COMPLETE ==========");
+    // }
+    /**
+ * Starts the election process with coordination between followers.
+ */
+
+// CLAUDE
+public synchronized void startElection() {
+    logMessage("========== STARTING ELECTION PROCESS ==========");
+    
+    // Step 1: Get all known servers from our follower list
+    List<String> allServerIps = new ArrayList<>(followerIps);
+    allServerIps.add(serverIp);
+    
+    logMessage("Known servers for election: " + allServerIps);
+    
+    // Step 2: Contact each follower to get consensus on the participant list
+    List<String> confirmedServers = new ArrayList<>();
+    confirmedServers.add(serverIp); // Add self to confirmed list
+    
+    // Try to connect to each known follower to confirm availability
+    for (String ip : allServerIps) {
+        if (ip.equals(serverIp)) continue; // Skip self
+        
+        try {
+            logMessage("Attempting to contact server at " + ip + " for election coordination");
+            Socket socket = new Socket(ip, SERVER_PORT);
+            
+            // Send election message
+            ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
+            out.flush();
+            out.writeObject("ELECTION_COORDINATION:"+serverIp);
+            out.flush();
+            
+            // Get response
+            ObjectInputStream in = new ObjectInputStream(socket.getInputStream());
+            Object response = in.readObject();
+            
+            if (response instanceof String && ((String)response).startsWith("ELECTION_PARTICIPATE")) {
+                confirmedServers.add(ip);
+                logMessage("Server " + ip + " will participate in election");
             }
+            
+            // Close connection
+            out.close();
+            in.close();
+            socket.close();
+        } catch (IOException | ClassNotFoundException e) {
+            logMessage("Could not contact server at " + ip + ": " + e.getMessage());
         }
-        
-        logMessage("Election result: Highest IP is " + highestIp);
-        
-        if (highestIp.equals(serverIp)) {
-            logMessage("THIS SERVER WON THE ELECTION!");
-            becomeLeader();
-        } else {
-            logMessage("Another server won the election: " + highestIp);
-            followNewLeader(highestIp);
-        }
-        
-        logMessage("========== ELECTION PROCESS COMPLETE ==========");
     }
+    
+    // Step 3: Determine leader based on confirmed servers list
+    logMessage("Servers participating in election: " + confirmedServers);
+    
+    String highestIp = "";
+    for (String ip : confirmedServers) {
+        if (ip.compareTo(highestIp) > 0) {
+            highestIp = ip;
+        }
+    }
+    
+    logMessage("Election result: Highest IP is " + highestIp);
+    
+    // Step 4: Either become leader or follow new leader
+    if (highestIp.equals(serverIp)) {
+        logMessage("THIS SERVER WON THE ELECTION!");
+        becomeLeader();
+    } else {
+        logMessage("Another server won the election: " + highestIp);
+        followNewLeader(highestIp);
+    }
+    
+    logMessage("========== ELECTION PROCESS COMPLETE ==========");
+}
+// CLAUDE END
     
     /**
      * Transitions to follower mode with a new leader.
@@ -585,7 +659,9 @@ public class Server {
                     logMessage("Connection to " + role + " lost: " + e.getMessage());
                     
                     if (type == ServerConnectionType.LEADER && !isLeader()) {
-                        connectToLeader();
+                        // Start election immediately instead of just trying to reconnect
+                        logMessage("Lost connection to leader. Starting election process.");
+                        schedulerThreadPool.execute(() -> startElection());
                     }
                 } finally {
                     close();
@@ -596,27 +672,74 @@ public class Server {
         /**
          * Handles incoming messages.
          */
-        private void handleMessage(Object message) {
-            if (message instanceof String) {
-                String typeName = type == ServerConnectionType.LEADER ? "leader" : "follower";
-                String pingMessage = (String) message;
-                logMessage("PING RECEIVED from " + typeName + " [" + remoteIp + "]: " + pingMessage);
+        // private void handleMessage(Object message) {
+        //     if (message instanceof String) {
+        //         String typeName = type == ServerConnectionType.LEADER ? "leader" : "follower";
+        //         String pingMessage = (String) message;
+        //         logMessage("PING RECEIVED from " + typeName + " [" + remoteIp + "]: " + pingMessage);
                 
-                // If leader, update follower list based on ping message
-                if (type == ServerConnectionType.LEADER && pingMessage.contains("*")) {
-                    followerIps.clear();
-                    String[] ips = pingMessage.split("\\s*\\*\\s*");
-                    for (String ip : ips) {
-                        if (!ip.trim().isEmpty()) {
-                            followerIps.add(ip.trim());
-                        }
-                    }
-                    logMessage("Updated follower list from leader: " + followerIps);
-                }
-            } else {
-                logMessage("Received unknown message type: " + message.getClass().getName());
+        //         // If leader, update follower list based on ping message
+        //         if (type == ServerConnectionType.LEADER && pingMessage.contains("*")) {
+        //             followerIps.clear();
+        //             String[] ips = pingMessage.split("\\s*\\*\\s*");
+        //             for (String ip : ips) {
+        //                 if (!ip.trim().isEmpty()) {
+        //                     followerIps.add(ip.trim());
+        //                 }
+        //             }
+        //             logMessage("Updated follower list from leader: " + followerIps);
+        //         }
+        //     } else {
+        //         logMessage("Received unknown message type: " + message.getClass().getName());
+        //     }
+        // }
+        
+        // CLAUDE
+/**
+ * Handles incoming messages.
+ */
+private void handleMessage(Object message) {
+    if (message instanceof String) {
+        String msgStr = (String) message;
+        String typeName = type == ServerConnectionType.LEADER ? "leader" : "follower";
+        
+        // Handle election coordination messages
+        if (msgStr.startsWith("ELECTION_COORDINATION:")) {
+            String initiatorIp = msgStr.substring("ELECTION_COORDINATION:".length());
+            logMessage("Received election coordination request from " + initiatorIp);
+            
+            try {
+                // Respond that we'll participate in the election
+                outputStream.writeObject("ELECTION_PARTICIPATE:" + serverIp);
+                outputStream.flush();
+                logMessage("Responded to election coordination from " + initiatorIp);
+            } catch (IOException e) {
+                logMessage("Error responding to election coordination: " + e.getMessage());
             }
         }
+        // Handle normal ping messages
+        else {
+            logMessage("PING RECEIVED from " + typeName + " [" + remoteIp + "]: " + msgStr);
+            
+            // If leader, update follower list based on ping message
+            if (type == ServerConnectionType.LEADER && msgStr.contains("*")) {
+                followerIps.clear();
+                String[] ips = msgStr.split("\\s*\\*\\s*");
+                for (String ip : ips) {
+                    if (!ip.trim().isEmpty()) {
+                        followerIps.add(ip.trim());
+                    }
+                }
+                logMessage("Updated follower list from leader: " + followerIps);
+            }
+        }
+    } else {
+        logMessage("Received unknown message type: " + message.getClass().getName());
+    }
+}
+        // CLAUDE END
+
+
         
         /**
          * Sends a message to the remote server.
