@@ -622,13 +622,15 @@
 //          */
 //         public void sendMessage(Object message) throws IOException {
 //             if (outputStream != null) {
-//                 outputStream.writeObject(message);
-//                 outputStream.flush();
+//                 synchronized(outputStream) {  // Ensure only one thread writes at a time
+//                     outputStream.writeObject(message);
+//                     outputStream.flush();
+//                 }
 //             } else {
 //                 throw new IOException("Output stream is not initialized");
 //             }
 //         }
-        
+                
 //         /**
 //          * Closes the connection and cleans up resources
 //          */
@@ -722,7 +724,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.locks.ReentrantLock;
 
 public class Server {
     private static final int PORT = 12345; // Client connection port
@@ -733,37 +734,31 @@ public class Server {
     private final UserManager userManager;
     private final List<ClientHandler> connectedClients;
     private final AtomicBoolean actingAsLeader = new AtomicBoolean(false);
-    private volatile String leaderIp;
+    private volatile String leaderIp;  // volatile ensures visibility across threads
     private final String serverIp;
     
-    // Thread pools for better resource management
+    // Thread pools for resource management
     private final ExecutorService connectionThreadPool;
     private final ScheduledExecutorService schedulerThreadPool;
     
     // Server connection management
     private final List<ServerConnection> serverConnections = new CopyOnWriteArrayList<>();
-    // track followers (both leaders and followers use this)
+    // Track followers
     private final List<String> followerIps = new CopyOnWriteArrayList<>();
 
     // Server sockets
-    private volatile ServerSocket clientServerSocket;
-    private volatile ServerSocket serverServerSocket;
-    
-    // Locks for synchronizing critical sections
-    private final ReentrantLock leadershipLock = new ReentrantLock();
-    private final ReentrantLock serverConnectionLock = new ReentrantLock();
-    private final ReentrantLock clientConnectionLock = new ReentrantLock();
-    private final ReentrantLock followerIpsLock = new ReentrantLock();
+    private ServerSocket clientServerSocket;
+    private ServerSocket serverServerSocket;
     
     /**
-     * Constructor for leader server
+     * Constructor for leader server.
      */
     public Server() {
         this(null);
     }
 
     /**
-     * Constructor with leader IP
+     * Constructor with leader IP.
      * @param leaderIp IP of leader server (null for leader mode)
      */
     public Server(String leaderIp) {
@@ -807,7 +802,7 @@ public class Server {
     }
     
     /**
-     * Logs a message with timestamp and server role
+     * Logs a message with timestamp and server role.
      */
     private void logMessage(String message) {
         SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
@@ -817,163 +812,84 @@ public class Server {
     }
     
     /**
-     * Starts the server-to-server listener (leader mode)
+     * Starts the server-to-server listener (leader mode).
      */
     private void startServerToServerListener() {
         if (!isLeader()) return;
         
         connectionThreadPool.execute(() -> {
-            try {
-                leadershipLock.lock();
-                try {
-                    // Only create the socket if we're still in leader mode
-                    if (!isLeader()) return;
-                    serverServerSocket = new ServerSocket(SERVER_PORT);
-                } finally {
-                    leadershipLock.unlock();
-                }
-                
+            try (ServerSocket serverSocket = new ServerSocket(SERVER_PORT)) {
+                serverServerSocket = serverSocket;
                 logMessage("Leader server is listening for followers on port " + SERVER_PORT);
                 
-                while (!Thread.currentThread().isInterrupted() && isLeader()) {
-                    Socket followerSocket = null;
+                while (!Thread.currentThread().isInterrupted()) {
                     try {
                         logMessage("Waiting for follower connections...");
-                        followerSocket = serverServerSocket.accept();
-                        final Socket finalFollowerSocket = followerSocket;
+                        Socket followerSocket = serverSocket.accept();
+                        String followerIp = followerSocket.getInetAddress().getHostAddress();
+                        logMessage("NEW FOLLOWER CONNECTED! IP: " + followerIp);
                         
-                        // Process in a separate thread to avoid blocking
-                        connectionThreadPool.execute(() -> {
-                            String followerIp = finalFollowerSocket.getInetAddress().getHostAddress();
-                            logMessage("NEW FOLLOWER CONNECTED! IP: " + followerIp);
-                            
-                            // Create and register the server connection
-                            ServerConnection connection = new ServerConnection(
-                                finalFollowerSocket, followerIp, ServerConnectionType.FOLLOWER);
-                            
-                            serverConnectionLock.lock();
-                            try {
-                                serverConnections.add(connection);
-                            } finally {
-                                serverConnectionLock.unlock();
-                            }
-                            
-                            followerIpsLock.lock();
-                            try {
-                                followerIps.add(followerIp);
-                            } finally {
-                                followerIpsLock.unlock();
-                            }
-                            
-                            sendFollowersToClients();
-                            
-                            // Start the connection
-                            connection.start();
-                        });
+                        // Create and register the connection
+                        ServerConnection connection = new ServerConnection(
+                            followerSocket, followerIp, ServerConnectionType.FOLLOWER);
+                        serverConnections.add(connection);
+                        followerIps.add(followerIp);
+                        sendFollowersToClients();
+
+                        // Start connection handler
+                        connection.start();
                     } catch (IOException e) {
-                        if (serverServerSocket != null && !serverServerSocket.isClosed()) {
+                        if (!serverSocket.isClosed()) {
                             logMessage("ERROR accepting follower connection: " + e.getMessage());
-                            // If we're still leader, wait a bit and continue
-                            if (isLeader()) {
-                                try {
-                                    Thread.sleep(1000); // Short delay to prevent CPU thrashing
-                                } catch (InterruptedException ie) {
-                                    Thread.currentThread().interrupt();
-                                    break;
-                                }
-                            } else {
-                                break; // No longer leader, exit loop
-                            }
                         } else {
-                            break; // Socket was closed, exit the loop
+                            break;
                         }
                     }
                 }
             } catch (IOException e) {
                 logMessage("ERROR in server-to-server listener: " + e.getMessage());
-            } finally {
-                // Ensure socket is closed
-                if (serverServerSocket != null && !serverServerSocket.isClosed()) {
-                    try {
-                        serverServerSocket.close();
-                    } catch (IOException e) {
-                        logMessage("ERROR closing server-to-server socket: " + e.getMessage());
-                    }
-                }
             }
         });
     }
     
     /**
-     * Connects to the leader server (follower mode)
+     * Connects to the leader server (follower mode).
      */
     private void connectToLeader(int attemptCount) {
         if (isLeader()) return;
-        
-        // Clear follower IPs when reconnecting to leader
-        followerIpsLock.lock();
-        try {
-            followerIps.clear();
-        } finally {
-            followerIpsLock.unlock();
-        }
+        followerIps.clear();
         
         connectionThreadPool.execute(() -> {
             logMessage("Attempting to connect to leader at " + leaderIp + ":" + SERVER_PORT);
-            Socket leaderSocket = null;
             try {
-                leaderSocket = new Socket(leaderIp, SERVER_PORT);
-                final Socket finalLeaderSocket = leaderSocket;
-                
+                Socket leaderSocket = new Socket(leaderIp, SERVER_PORT);
                 logMessage("CONNECTED TO LEADER SUCCESSFULLY at " + leaderIp);
                 
                 // Remove any existing leader connections
-                serverConnectionLock.lock();
-                try {
-                    for (ServerConnection conn : new ArrayList<>(serverConnections)) {
-                        if (conn.getType() == ServerConnectionType.LEADER) {
-                            conn.close();
-                            serverConnections.remove(conn);
-                        }
+                for (ServerConnection conn : new ArrayList<>(serverConnections)) {
+                    if (conn.getType() == ServerConnectionType.LEADER) {
+                        conn.close();
+                        serverConnections.remove(conn);
                     }
-                } finally {
-                    serverConnectionLock.unlock();
                 }
                 
                 // Create and register the leader connection
                 ServerConnection connection = new ServerConnection(
-                    finalLeaderSocket, leaderIp, ServerConnectionType.LEADER);
+                    leaderSocket, leaderIp, ServerConnectionType.LEADER);
+                serverConnections.add(connection);
                 
-                serverConnectionLock.lock();
-                try {
-                    serverConnections.add(connection);
-                } finally {
-                    serverConnectionLock.unlock();
-                }
-                
-                // Start the connection
+                // Start connection handler
                 connection.start();
             } catch (IOException e) {
                 logMessage("ERROR connecting to leader: " + e.getMessage());
                 
-                // Close socket in case of error
-                if (leaderSocket != null && !leaderSocket.isClosed()) {
-                    try {
-                        leaderSocket.close();
-                    } catch (IOException closeError) {
-                        logMessage("ERROR closing socket after failed connection: " + closeError.getMessage());
-                    }
-                }
-                
-                // Check if we need to start election or retry
                 if (attemptCount >= MAX_RECONNECT_ATTEMPTS) {
                     logMessage("Maximum reconnection attempts reached. Starting election...");
                     startElection();
                 } else {
-                    logMessage("Will attempt to reconnect in " + (RECONNECT_DELAY_MS/1000) + 
+                    logMessage("Will attempt to reconnect in " + (RECONNECT_DELAY_MS / 1000) + 
                             " seconds... (Attempt " + (attemptCount + 1) + "/" + MAX_RECONNECT_ATTEMPTS + ")");
                     
-                    // Schedule reconnection attempt
                     schedulerThreadPool.schedule(() -> connectToLeader(attemptCount + 1), 
                             RECONNECT_DELAY_MS, TimeUnit.MILLISECONDS);
                 }
@@ -981,37 +897,24 @@ public class Server {
         });
     }
 
+    /**
+     * Sends the follower list to all clients.
+     */
     public void sendFollowersToClients() {
         if (!isLeader()) return;
         
-        List<String> currentFollowers = new ArrayList<>();
-        followerIpsLock.lock();
-        try {
-            currentFollowers.addAll(followerIps);
-        } finally {
-            followerIpsLock.unlock();
-        }
+        logMessage("Sending updated follower list to all clients: " + followerIps);
         
-        logMessage("Sending updated follower list to all clients: " + currentFollowers);
-        
-        // Create a message with all follower IPs joined with "*" as delimiter
-        // Use the same format as in ping messages for consistency
-        String followerList = String.join(" * ", currentFollowers);
+        String followerList = String.join(" * ", followerIps);
         String messageContent = "SERVER_FOLLOWER_LIST:" + followerList;
         
-        // Send to all clients
-        clientConnectionLock.lock();
-        try {
-            for (ClientHandler client : connectedClients) {
-                client.sendMessage(messageContent);
-            }
-        } finally {
-            clientConnectionLock.unlock();
+        for (ClientHandler client : connectedClients) {
+            client.sendMessage(messageContent);
         }
     }
     
     /**
-     * Starts the ping scheduler
+     * Starts the ping scheduler.
      */
     private void startPingScheduler() {
         logMessage("Starting ping scheduler - will ping every 5 seconds");
@@ -1028,58 +931,30 @@ public class Server {
     }
     
     /**
-     * Sends ping messages to all followers (leader mode)
+     * Sends ping messages to all followers (leader mode).
      */
     private void pingFollowers() {
         if (!isLeader()) return;
 
-        followerIpsLock.lock();
-        try {
-            followerIps.clear();
-        } finally {
-            followerIpsLock.unlock();
-        }
-        
-        // Build list of follower IPs
-        List<ServerConnection> currentConnections = new ArrayList<>();
-        serverConnectionLock.lock();
-        try {
-            currentConnections.addAll(serverConnections);
-        } finally {
-            serverConnectionLock.unlock();
-        }
-        
-        for (ServerConnection conn : currentConnections) {
+        // Build follower IP list from active connections
+        followerIps.clear();
+        for (ServerConnection conn : serverConnections) {
             if (conn.getType() == ServerConnectionType.FOLLOWER) {
-                followerIpsLock.lock();
-                try {
-                    followerIps.add(conn.getRemoteIp());
-                } finally {
-                    followerIpsLock.unlock();
-                }
+                followerIps.add(conn.getRemoteIp());
             }
         }
         
-        List<String> followerIpsCopy = new ArrayList<>();
-        followerIpsLock.lock();
-        try {
-            followerIpsCopy.addAll(followerIps);
-        } finally {
-            followerIpsLock.unlock();
-        }
-        
         logMessage("LEADER PING - Current leader IP: " + serverIp);
-        logMessage("Total followers to ping: " + followerIpsCopy.size());
+        logMessage("Total followers to ping: " + followerIps.size());
         
-        if (followerIpsCopy.isEmpty()) {
+        if (followerIps.isEmpty()) {
             logMessage("No followers connected, skipping ping");
             return;
         }
         
-        String pingMessage = String.join(" * ", followerIpsCopy);
+        String pingMessage = String.join(" * ", followerIps);
         
-        // Send ping to all followers
-        for (ServerConnection conn : currentConnections) {
+        for (ServerConnection conn : new ArrayList<>(serverConnections)) {
             if (conn.getType() == ServerConnectionType.FOLLOWER) {
                 try {
                     logMessage("Sending ping to follower: " + conn.getRemoteIp());
@@ -1087,14 +962,13 @@ public class Server {
                     logMessage("Ping sent successfully to follower: " + conn.getRemoteIp());
                 } catch (IOException e) {
                     logMessage("ERROR pinging follower " + conn.getRemoteIp() + ": " + e.getMessage());
-                    // Connection will be closed in the exception handler of the reader thread
                 }
             }
         }
     }
     
     /**
-     * Sends ping message to the leader (follower mode)
+     * Sends a ping message to the leader (follower mode).
      */
     private void pingLeader() {
         if (isLeader()) return;
@@ -1114,138 +988,92 @@ public class Server {
             logMessage("Ping sent successfully to leader");
         } catch (IOException e) {
             logMessage("ERROR pinging leader: " + e.getMessage());
-            // Connection will be closed in the exception handler of the reader thread
         }
     }
     
     /**
-     * Gets the leader connection (follower mode)
+     * Retrieves the leader connection (follower mode).
      */
     private ServerConnection getLeaderConnection() {
-        serverConnectionLock.lock();
-        try {
-            for (ServerConnection conn : serverConnections) {
-                if (conn.getType() == ServerConnectionType.LEADER) {
-                    return conn;
-                }
+        for (ServerConnection conn : serverConnections) {
+            if (conn.getType() == ServerConnectionType.LEADER) {
+                return conn;
             }
-        } finally {
-            serverConnectionLock.unlock();
         }
         return null;
     }
     
     /**
-     * Starts the election process
+     * Starts the election process.
      */
-    public void startElection() {
+    public synchronized void startElection() {
         logMessage("========== STARTING ELECTION PROCESS ==========");
         
-        leadershipLock.lock();
-        try {
-            // Collect all server IPs including this one
-            List<String> allServerIps = new ArrayList<>();
-            followerIpsLock.lock();
-            try {
-                allServerIps.addAll(followerIps);
-            } finally {
-                followerIpsLock.unlock();
+        List<String> allServerIps = new ArrayList<>(followerIps);
+        allServerIps.add(serverIp);
+        
+        logMessage("Servers participating in election: " + allServerIps);
+        
+        String highestIp = "";
+        for (String ip : allServerIps) {
+            if (ip.compareTo(highestIp) > 0) {
+                highestIp = ip;
             }
-            allServerIps.add(serverIp);
-            
-            logMessage("Servers participating in election: " + allServerIps);
-            
-            // Simple bully algorithm: highest IP becomes leader
-            String highestIp = "";
-            for (String ip : allServerIps) {
-                if (ip.compareTo(highestIp) > 0) {
-                    highestIp = ip;
-                }
-            }
-            
-            logMessage("Election result: Highest IP is " + highestIp);
-            
-            if (highestIp.equals(serverIp)) {
-                logMessage("THIS SERVER WON THE ELECTION!");
-                becomeLeader();
-            } else {
-                logMessage("Another server won the election: " + highestIp);
-                followNewLeader(highestIp);
-            }
-        } finally {
-            leadershipLock.unlock();
+        }
+        
+        logMessage("Election result: Highest IP is " + highestIp);
+        
+        if (highestIp.equals(serverIp)) {
+            logMessage("THIS SERVER WON THE ELECTION!");
+            becomeLeader();
+        } else {
+            logMessage("Another server won the election: " + highestIp);
+            followNewLeader(highestIp);
         }
         
         logMessage("========== ELECTION PROCESS COMPLETE ==========");
     }
     
-    // For following a new leader
-    private void followNewLeader(String newLeaderIp) {
-        leadershipLock.lock();
-        try {
-            // Update leader state
-            actingAsLeader.set(false);
-            this.leaderIp = newLeaderIp;
-        } finally {
-            leadershipLock.unlock();
-        }
-        
-        // Connect to the new leader
+    /**
+     * Transitions to follower mode with a new leader.
+     */
+    private synchronized void followNewLeader(String newLeaderIp) {
+        actingAsLeader.set(false);
+        this.leaderIp = newLeaderIp;
         connectToLeader(0);
     }
 
-    // for becoming a leader from a follower
-    private void becomeLeader() {
-        leadershipLock.lock();
-        try {
-            // Only execute if we're not already a leader
-            if (isLeader()) {
-                logMessage("Already in leader mode, no transition needed");
-                return;
-            }
-            
-            logMessage("TRANSITIONING TO LEADER MODE");
-            
-            // Clear all existing connections
-            serverConnectionLock.lock();
-            try {
-                for (ServerConnection conn : new ArrayList<>(serverConnections)) {
-                    conn.close();
-                }
-                serverConnections.clear();
-            } finally {
-                serverConnectionLock.unlock();
-            }
-            
-            // Remove this server's IP from the follower list
-            followerIpsLock.lock();
-            try {
-                followerIps.remove(serverIp);
-                logMessage("Removed self from follower list: " + serverIp);
-            } finally {
-                followerIpsLock.unlock();
-            }
-            
-            // Set leader state
-            actingAsLeader.set(true);
-            
-            // Notify clients about leadership change
-            broadcastToAll("SERVER_LEADERSHIP_CHANGE", null);
-            
-            // Start server socket for followers
-            startServerToServerListener();
-            
-            // Start listening to Clients now
-            start();
-            
-            logMessage("Successfully transitioned to leader mode");
-        } finally {
-            leadershipLock.unlock();
+    /**
+     * Transitions this server to leader mode.
+     */
+    public synchronized void becomeLeader() {
+        if (isLeader()) {
+            logMessage("Already in leader mode, no transition needed");
+            return;
         }
+        
+        logMessage("TRANSITIONING TO LEADER MODE");
+        
+        for (ServerConnection conn : new ArrayList<>(serverConnections)) {
+            conn.close();
+        }
+        serverConnections.clear();
+        
+        followerIps.remove(serverIp);
+        logMessage("Removed self from follower list: " + serverIp);
+
+        actingAsLeader.set(true);
+        
+        broadcastToAll("SERVER_LEADERSHIP_CHANGE", null);
+        
+        startServerToServerListener();
+        start();
+        
+        logMessage("Successfully transitioned to leader mode");
     }
     
     /**
-     * Logs the complete state of the server
+     * Logs the complete state of the server.
      */
     private void logServerState() {
         StringBuilder state = new StringBuilder();
@@ -1261,35 +1089,15 @@ public class Server {
             state.append("Leader connection: ").append(leaderConn != null ? "CONNECTED" : "DISCONNECTED").append("\n");
         }
         
-        clientConnectionLock.lock();
-        try {
-            state.append("Client connections: ").append(connectedClients.size()).append("\n");
-        } finally {
-            clientConnectionLock.unlock();
-        }
+        state.append("Client connections: ").append(connectedClients.size()).append("\n");
+        state.append("Server connections: ").append(serverConnections.size()).append("\n");
         
-        serverConnectionLock.lock();
-        try {
-            state.append("Server connections: ").append(serverConnections.size()).append("\n");
-        } finally {
-            serverConnectionLock.unlock();
-        }
-        
-        // Follower IPs
-        List<String> followerIpsCopy = new ArrayList<>();
-        followerIpsLock.lock();
-        try {
-            followerIpsCopy.addAll(followerIps);
-        } finally {
-            followerIpsLock.unlock();
-        }
-        
-        state.append("Follower IPs (").append(followerIpsCopy.size()).append("):");
-        if (followerIpsCopy.isEmpty()) {
+        state.append("Follower IPs (").append(followerIps.size()).append("):");
+        if (followerIps.isEmpty()) {
             state.append(" None\n");
         } else {
             state.append("\n");
-            for (String ip : followerIpsCopy) {
+            for (String ip : followerIps) {
                 state.append("  - ").append(ip).append("\n");
             }
         }
@@ -1297,114 +1105,73 @@ public class Server {
         state.append("===========================================");
         logMessage(state.toString());
     }
-    
+
     /**
-     * Starts the client server
+     * Starts the client server.
      */
     public void start() {
         connectionThreadPool.execute(() -> {
-            try {
-                clientServerSocket = new ServerSocket(PORT);
+            try (ServerSocket serverSocket = new ServerSocket(PORT)) {
+                clientServerSocket = serverSocket;
                 logMessage("Server is listening for clients on port " + PORT);
                 
-                while (!Thread.currentThread().isInterrupted() && !clientServerSocket.isClosed()) {
+                while (!Thread.currentThread().isInterrupted()) {
                     try {
-                        Socket socket = clientServerSocket.accept();
+                        Socket socket = serverSocket.accept();
                         logMessage("New client connected");
                         
-                        // Process in a separate thread to avoid blocking
-                        connectionThreadPool.execute(() -> {
-                            // Handle client connection
-                            ClientHandler clientHandler = new ClientHandler(socket, userManager, this);
-                            
-                            clientConnectionLock.lock();
-                            try {
-                                connectedClients.add(clientHandler);
-                            } finally {
-                                clientConnectionLock.unlock();
-                            }
-                            
-                            clientHandler.start();
-                        });
+                        ClientHandler clientHandler = new ClientHandler(socket, userManager, this);
+                        connectedClients.add(clientHandler);
+                        clientHandler.start();
                     } catch (IOException e) {
-                        if (clientServerSocket != null && !clientServerSocket.isClosed()) {
+                        if (!serverSocket.isClosed()) {
                             logMessage("ERROR accepting client connection: " + e.getMessage());
-                            try {
-                                Thread.sleep(1000); // Short delay to prevent CPU thrashing
-                            } catch (InterruptedException ie) {
-                                Thread.currentThread().interrupt();
-                                break;
-                            }
                         } else {
-                            break; // Socket was closed, exit the loop
+                            break;
                         }
                     }
                 }
             } catch (IOException e) {
                 logMessage("ERROR starting the server: " + e.getMessage());
-            } finally {
-                // Ensure socket is closed
-                if (clientServerSocket != null && !clientServerSocket.isClosed()) {
-                    try {
-                        clientServerSocket.close();
-                    } catch (IOException e) {
-                        logMessage("ERROR closing client server socket: " + e.getMessage());
-                    }
-                }
             }
         });
     }
     
     /**
-     * Removes a client handler from the list
+     * Removes a client handler from the list.
      */
     public void removeClient(ClientHandler client) {
-        clientConnectionLock.lock();
-        try {
-            connectedClients.remove(client);
-            logMessage("Client removed. Active connections: " + connectedClients.size());
-        } finally {
-            clientConnectionLock.unlock();
-        }
+        connectedClients.remove(client);
+        logMessage("Client removed. Active connections: " + connectedClients.size());
     }
     
     /**
-     * Broadcasts a message to all clients except the sender
+     * Broadcasts a message to all clients except the sender.
      */
     public void broadcastToAll(Object message, ClientHandler sender) {
-        clientConnectionLock.lock();
-        try {
-            for (ClientHandler client : connectedClients) {
-                if (client != sender) {
-                    client.sendMessage(message);
-                }
+        for (ClientHandler client : connectedClients) {
+            if (client != sender) {
+                client.sendMessage(message);
             }
-        } finally {
-            clientConnectionLock.unlock();
         }
     }
     
     /**
-     * Checks if this server is the leader
+     * Checks if this server is the leader.
      */
     public boolean isLeader() {
         return actingAsLeader.get();
     }
 
     /**
-     * Gets the current list of follower IPs
+     * Gets the current list of follower IPs.
      */
     public List<String> getFollowerIps() {
-        followerIpsLock.lock();
-        try {
-            return new ArrayList<>(followerIps);
-        } finally {
-            followerIpsLock.unlock();
-        }
+        return new ArrayList<>(followerIps);
     }
     
     /**
-     * Gets the leader output stream (follower mode)
+     * Gets the leader output stream (follower mode).
      */
     public ObjectOutputStream getLeaderOutputStream() {
         ServerConnection leaderConn = getLeaderConnection();
@@ -1412,23 +1179,16 @@ public class Server {
     }
     
     /**
-     * Shuts down the server and releases resources
+     * Shuts down the server and releases resources.
      */
     public void shutdown() {
         logMessage("Shutting down server...");
         
-        // Close all connections
-        serverConnectionLock.lock();
-        try {
-            for (ServerConnection conn : new ArrayList<>(serverConnections)) {
-                conn.close();
-            }
-            serverConnections.clear();
-        } finally {
-            serverConnectionLock.unlock();
+        for (ServerConnection conn : new ArrayList<>(serverConnections)) {
+            conn.close();
         }
+        serverConnections.clear();
         
-        // Close server sockets
         try {
             if (clientServerSocket != null && !clientServerSocket.isClosed()) {
                 clientServerSocket.close();
@@ -1445,7 +1205,6 @@ public class Server {
             logMessage("Error closing server socket: " + e.getMessage());
         }
         
-        // Shutdown thread pools
         schedulerThreadPool.shutdownNow();
         connectionThreadPool.shutdownNow();
         
@@ -1453,7 +1212,7 @@ public class Server {
     }
     
     /**
-     * Server connection types
+     * Server connection types.
      */
     private enum ServerConnectionType {
         LEADER,
@@ -1461,19 +1220,15 @@ public class Server {
     }
     
     /**
-     * Class to handle server-to-server connections
+     * Handles server-to-server connections.
      */
     private class ServerConnection {
         private final Socket socket;
         private final String remoteIp;
         private final ServerConnectionType type;
-        private volatile ObjectOutputStream outputStream;
-        private volatile ObjectInputStream inputStream;
-        private final ReentrantLock streamLock = new ReentrantLock();
+        private ObjectOutputStream outputStream;
+        private ObjectInputStream inputStream;
         
-        /**
-         * Creates a new server connection
-         */
         public ServerConnection(Socket socket, String remoteIp, ServerConnectionType type) {
             this.socket = socket;
             this.remoteIp = remoteIp;
@@ -1481,52 +1236,40 @@ public class Server {
         }
         
         /**
-         * Starts the connection handler
+         * Starts the connection handler.
          */
         public void start() {
             connectionThreadPool.execute(() -> {
                 try {
-                    // Initialize streams
-                    streamLock.lock();
-                    try {
-                        outputStream = new ObjectOutputStream(socket.getOutputStream());
-                        outputStream.flush();
-                        inputStream = new ObjectInputStream(socket.getInputStream());
-                    } finally {
-                        streamLock.unlock();
-                    }
+                    outputStream = new ObjectOutputStream(socket.getOutputStream());
+                    outputStream.flush();
+                    inputStream = new ObjectInputStream(socket.getInputStream());
                     
-                    logMessage("Communication streams established with " + 
-                            type.name().toLowerCase() + ": " + remoteIp);
+                    logMessage("Communication streams established with " + type.name().toLowerCase() + ": " + remoteIp);
                     
-                    // Read messages until connection is closed
                     while (!Thread.currentThread().isInterrupted() && !socket.isClosed()) {
                         try {
                             Object message = inputStream.readObject();
                             handleMessage(message);
                         } catch (ClassNotFoundException e) {
                             logMessage("ERROR: Received unknown object type: " + e.getMessage());
-                        } catch (IOException e) {
-                            logMessage("ERROR reading from " + type.name().toLowerCase() + ": " + e.getMessage());
-                            break; // Exit the loop on read error
                         }
                     }
                 } catch (IOException e) {
                     String role = type == ServerConnectionType.LEADER ? "leader" : "follower";
                     logMessage("Connection to " + role + " lost: " + e.getMessage());
-                } finally {
-                    close();
                     
-                    // Reconnect if this was the leader connection
                     if (type == ServerConnectionType.LEADER && !isLeader()) {
                         connectToLeader(0);
                     }
+                } finally {
+                    close();
                 }
             });
         }
         
         /**
-         * Handles incoming messages
+         * Handles incoming messages.
          */
         private void handleMessage(Object message) {
             if (message instanceof String) {
@@ -1534,20 +1277,14 @@ public class Server {
                 String pingMessage = (String) message;
                 logMessage("PING RECEIVED from " + typeName + " [" + remoteIp + "]: " + pingMessage);
                 
-                // Process follower list if we're a follower and message contains delimiter
+                // If leader, update follower list based on ping message
                 if (type == ServerConnectionType.LEADER && pingMessage.contains("*")) {
-                    followerIpsLock.lock();
-                    try {
-                        followerIps.clear();
-
-                        String[] ips = pingMessage.split("\\s*\\*\\s*");
-                        for (String ip : ips) {
-                            if (!ip.trim().isEmpty()) {
-                                followerIps.add(ip.trim());
-                            }
+                    followerIps.clear();
+                    String[] ips = pingMessage.split("\\s*\\*\\s*");
+                    for (String ip : ips) {
+                        if (!ip.trim().isEmpty()) {
+                            followerIps.add(ip.trim());
                         }
-                    } finally {
-                        followerIpsLock.unlock();
                     }
                     logMessage("Updated follower list from leader: " + followerIps);
                 }
@@ -1557,125 +1294,79 @@ public class Server {
         }
         
         /**
-         * Sends a message to the remote server
+         * Sends a message to the remote server.
          */
         public void sendMessage(Object message) throws IOException {
-            streamLock.lock();
-            try {
-                if (outputStream != null && !socket.isClosed()) {
+            if (outputStream != null) {
+                synchronized (outputStream) {
                     outputStream.writeObject(message);
                     outputStream.flush();
-                } else {
-                    throw new IOException("Output stream is not initialized or socket is closed");
                 }
-            } finally {
-                streamLock.unlock();
+            } else {
+                throw new IOException("Output stream is not initialized");
             }
         }
         
         /**
-         * Closes the connection and cleans up resources
+         * Closes the connection and cleans up resources.
          */
         public void close() {
-            streamLock.lock();
             try {
                 if (outputStream != null) {
-                    try {
-                        outputStream.close();
-                    } catch (IOException e) {
-                        logMessage("Error closing output stream: " + e.getMessage());
-                    }
-                    outputStream = null;
+                    outputStream.close();
                 }
-                
                 if (inputStream != null) {
-                    try {
-                        inputStream.close();
-                    } catch (IOException e) {
-                        logMessage("Error closing input stream: " + e.getMessage());
-                    }
-                    inputStream = null;
+                    inputStream.close();
                 }
-                
                 if (socket != null && !socket.isClosed()) {
-                    try {
-                        socket.close();
-                    } catch (IOException e) {
-                        logMessage("Error closing socket: " + e.getMessage());
-                    }
+                    socket.close();
                 }
-            } finally {
-                streamLock.unlock();
+            } catch (IOException e) {
+                logMessage("Error closing connection resources: " + e.getMessage());
             }
             
-            // Remove from list if still there
-            serverConnectionLock.lock();
-            try {
-                serverConnections.remove(this);
-            } finally {
-                serverConnectionLock.unlock();
-            }
-            
+            serverConnections.remove(this);
             String typeName = type == ServerConnectionType.LEADER ? "Leader" : "Follower";
-            logMessage(typeName + " " + remoteIp + " disconnected. Active server connections: " + 
-                    serverConnections.size());
-
-            followerIpsLock.lock();
-            try {
-                followerIps.remove(getRemoteIp());
-            } finally {
-                followerIpsLock.unlock();
-            }
-            
+            logMessage(typeName + " " + remoteIp + " disconnected. Active server connections: " + serverConnections.size());
+            followerIps.remove(getRemoteIp());
             if (isLeader() && type == ServerConnectionType.FOLLOWER) {
-                // The list will be updated after the connection is removed
                 schedulerThreadPool.schedule(() -> sendFollowersToClients(), 100, TimeUnit.MILLISECONDS);
             }
         }
         
         /**
-         * Gets the remote IP address
+         * Gets the remote IP address.
          */
         public String getRemoteIp() {
             return remoteIp;
         }
         
         /**
-         * Gets the connection type
+         * Gets the connection type.
          */
         public ServerConnectionType getType() {
             return type;
         }
         
         /**
-         * Gets the output stream
+         * Gets the output stream.
          */
         public ObjectOutputStream getOutputStream() {
-            streamLock.lock();
-            try {
-                return outputStream;
-            } finally {
-                streamLock.unlock();
-            }
+            return outputStream;
         }
     }
     
     /**
-     * Main method
+     * Main method.
      */
     public static void main(String[] args) {
         Server server;
-        
         if (args.length > 0) {
-            // If there's a command-line argument, treat it as the leader IP
             server = new Server(args[0]);
         } else {
-            // No arguments, start as a leader
             server = new Server();
             server.start();
         }
-        
-        // Add shutdown hook for clean resource release
         Runtime.getRuntime().addShutdownHook(new Thread(server::shutdown));
     }
 }
