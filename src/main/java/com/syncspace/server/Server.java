@@ -95,8 +95,8 @@ public class Server {
             connectToLeader();
         }
         
-        // Start ping scheduler
-        // startPingScheduler();
+        // Start ping scheduler and periodic log replication
+        startPingScheduler();
     }
     
     /**
@@ -107,6 +107,29 @@ public class Server {
         String timestamp = dateFormat.format(new Date());
         String serverType = isLeader() ? "[LEADER]" : "[FOLLOWER]";
         System.out.println(timestamp + " " + serverType + " " + message);
+        
+        // Replicate log to followers if this is the leader
+        if (isLeader()) {
+            replicateLogToFollowers(timestamp + " " + serverType + " " + message);
+        }
+    }
+    
+    /**
+     * Replicates log message to all followers.
+     */
+    private void replicateLogToFollowers(String logMessage) {
+        if (!isLeader()) return;
+        
+        for (ServerConnection conn : new ArrayList<>(serverConnections)) {
+            if (conn.getType() == ServerConnectionType.FOLLOWER) {
+                try {
+                    conn.sendMessage("LOG:" + logMessage);
+                } catch (IOException e) {
+                    // Don't log this to avoid infinite loops
+                    System.err.println("Failed to replicate log to follower " + conn.getRemoteIp());
+                }
+            }
+        }
     }
     
     /**
@@ -241,19 +264,19 @@ public class Server {
     /**
      * Starts the ping scheduler.
      */
-    // private void startPingScheduler() {
-    //     logMessage("Starting ping scheduler - will ping every 5 seconds");
-    //     schedulerThreadPool.scheduleAtFixedRate(() -> {
-    //         if (isLeader()) {
-    //             pingFollowers();
-    //         } else {
-    //             pingLeader();
-    //         }
-    //     }, 0, 5, TimeUnit.SECONDS);
+    private void startPingScheduler() {
+        logMessage("Starting ping scheduler - will ping every 5 seconds");
+        schedulerThreadPool.scheduleAtFixedRate(() -> {
+            if (isLeader()) {
+                pingFollowers();
+            } else {
+                pingLeader();
+            }
+        }, 0, 5, TimeUnit.SECONDS);
 
-    //     schedulerThreadPool.scheduleAtFixedRate(this::logServerState, 
-    //         1, 3, TimeUnit.SECONDS);
-    // }
+        schedulerThreadPool.scheduleAtFixedRate(this::logServerState, 
+            1, 10, TimeUnit.SECONDS);
+    }
     
     /**
      * Sends ping messages to all followers (leader mode).
@@ -283,7 +306,7 @@ public class Server {
             if (conn.getType() == ServerConnectionType.FOLLOWER) {
                 try {
                     logMessage("Sending ping to follower: " + conn.getRemoteIp());
-                    conn.sendMessage(pingMessage);
+                    conn.sendMessage("PING:" + pingMessage);
                     logMessage("Ping sent successfully to follower: " + conn.getRemoteIp());
                 } catch (IOException e) {
                     logMessage("ERROR pinging follower " + conn.getRemoteIp() + ": " + e.getMessage());
@@ -295,26 +318,26 @@ public class Server {
     /**
      * Sends a ping message to the leader (follower mode).
      */
-    // private void pingLeader() {
-    //     if (isLeader()) return;
+    private void pingLeader() {
+        if (isLeader()) return;
 
-    //     ServerConnection leaderConnection = getLeaderConnection();
+        ServerConnection leaderConnection = getLeaderConnection();
         
-    //     if (leaderConnection == null) {
-    //         logMessage("Not connected to leader, cannot send ping");
-    //         connectToLeader();
-    //         return;
-    //     }
+        if (leaderConnection == null) {
+            logMessage("Not connected to leader, cannot send ping");
+            connectToLeader();
+            return;
+        }
         
-    //     try {
-    //         logMessage("Sending ping to leader at " + leaderConnection.getRemoteIp() + 
-    //                 " with our IP: " + serverIp);
-    //         leaderConnection.sendMessage(serverIp);
-    //         logMessage("Ping sent successfully to leader");
-    //     } catch (IOException e) {
-    //         logMessage("ERROR pinging leader: " + e.getMessage());
-    //     }
-    // }
+        try {
+            logMessage("Sending ping to leader at " + leaderConnection.getRemoteIp() + 
+                    " with our IP: " + serverIp);
+            leaderConnection.sendMessage("PING:" + serverIp);
+            logMessage("Ping sent successfully to leader");
+        } catch (IOException e) {
+            logMessage("ERROR pinging leader: " + e.getMessage());
+        }
+    }
     
     /**
      * Retrieves the leader connection (follower mode).
@@ -400,36 +423,36 @@ public class Server {
     /**
      * Logs the complete state of the server.
      */
-    // private void logServerState() {
-    //     StringBuilder state = new StringBuilder();
-    //     state.append("\n=============== SERVER STATE ===============\n");
-    //     state.append("Role: ").append(isLeader() ? "LEADER" : "FOLLOWER").append("\n");
-    //     state.append("Server IP: ").append(serverIp).append("\n");
+    private void logServerState() {
+        StringBuilder state = new StringBuilder();
+        state.append("\n=============== SERVER STATE ===============\n");
+        state.append("Role: ").append(isLeader() ? "LEADER" : "FOLLOWER").append("\n");
+        state.append("Server IP: ").append(serverIp).append("\n");
         
-    //     if (isLeader()) {
-    //         state.append("Leader status: This server is the leader\n");
-    //     } else {
-    //         ServerConnection leaderConn = getLeaderConnection();
-    //         state.append("Leader IP: ").append(leaderIp).append("\n");
-    //         state.append("Leader connection: ").append(leaderConn != null ? "CONNECTED" : "DISCONNECTED").append("\n");
-    //     }
+        if (isLeader()) {
+            state.append("Leader status: This server is the leader\n");
+        } else {
+            ServerConnection leaderConn = getLeaderConnection();
+            state.append("Leader IP: ").append(leaderIp).append("\n");
+            state.append("Leader connection: ").append(leaderConn != null ? "CONNECTED" : "DISCONNECTED").append("\n");
+        }
         
-    //     state.append("Client connections: ").append(connectedClients.size()).append("\n");
-    //     state.append("Server connections: ").append(serverConnections.size()).append("\n");
+        state.append("Client connections: ").append(connectedClients.size()).append("\n");
+        state.append("Server connections: ").append(serverConnections.size()).append("\n");
         
-    //     state.append("Follower IPs (").append(followerIps.size()).append("):");
-    //     if (followerIps.isEmpty()) {
-    //         state.append(" None\n");
-    //     } else {
-    //         state.append("\n");
-    //         for (String ip : followerIps) {
-    //             state.append("  - ").append(ip).append("\n");
-    //         }
-    //     }
+        state.append("Follower IPs (").append(followerIps.size()).append("):");
+        if (followerIps.isEmpty()) {
+            state.append(" None\n");
+        } else {
+            state.append("\n");
+            for (String ip : followerIps) {
+                state.append("  - ").append(ip).append("\n");
+            }
+        }
         
-    //     state.append("===========================================");
-    //     logMessage(state.toString());
-    // }
+        state.append("===========================================");
+        logMessage(state.toString());
+    }
 
     /**
      * Starts the client server.
@@ -474,6 +497,8 @@ public class Server {
      * Broadcasts a message to all clients except the sender.
      */
     public void broadcastToAll(Object message, ClientHandler sender) {
+        logMessage("Broadcasting message to all clients: " + message.toString());
+        
         for (ClientHandler client : connectedClients) {
             if (client != sender) {
                 client.sendMessage(message);
@@ -598,20 +623,33 @@ public class Server {
          */
         private void handleMessage(Object message) {
             if (message instanceof String) {
-                String typeName = type == ServerConnectionType.LEADER ? "leader" : "follower";
-                String pingMessage = (String) message;
-                logMessage("PING RECEIVED from " + typeName + " [" + remoteIp + "]: " + pingMessage);
+                String stringMessage = (String) message;
                 
-                // If leader, update follower list based on ping message
-                if (type == ServerConnectionType.LEADER && pingMessage.contains("*")) {
-                    followerIps.clear();
-                    String[] ips = pingMessage.split("\\s*\\*\\s*");
-                    for (String ip : ips) {
-                        if (!ip.trim().isEmpty()) {
-                            followerIps.add(ip.trim());
+                if (stringMessage.startsWith("LOG:")) {
+                    // This is a log message from the leader - print it directly to console
+                    String log = stringMessage.substring(4);
+                    System.out.println("FROM LEADER: " + log);
+                } 
+                else if (stringMessage.startsWith("PING:")) {
+                    // This is a ping message
+                    String typeName = type == ServerConnectionType.LEADER ? "leader" : "follower";
+                    String pingMessage = stringMessage.substring(5);
+                    logMessage("PING RECEIVED from " + typeName + " [" + remoteIp + "]: " + pingMessage);
+                    
+                    // If leader, update follower list based on ping message
+                    if (type == ServerConnectionType.LEADER && pingMessage.contains("*")) {
+                        followerIps.clear();
+                        String[] ips = pingMessage.split("\\s*\\*\\s*");
+                        for (String ip : ips) {
+                            if (!ip.trim().isEmpty()) {
+                                followerIps.add(ip.trim());
+                            }
                         }
+                        logMessage("Updated follower list from leader: " + followerIps);
                     }
-                    logMessage("Updated follower list from leader: " + followerIps);
+                } else {
+                    // Other string messages
+                    logMessage("Received message: " + stringMessage);
                 }
             } else {
                 logMessage("Received unknown message type: " + message.getClass().getName());
