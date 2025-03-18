@@ -12,6 +12,7 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.ArrayList;
 import java.util.List;
 
 public class WhiteboardClient {
@@ -42,6 +43,25 @@ public class WhiteboardClient {
         }
     }
 
+    public WhiteboardClient(String serverAddress, int serverPort, WhiteboardPanel panel, JFrame fr) {
+        try {
+            socket = new Socket(serverAddress, serverPort);
+            // Important: Create output stream first, then flush it immediately
+            outputStream = new ObjectOutputStream(socket.getOutputStream());
+            outputStream.flush();
+            // Then create input stream
+            inputStream = new ObjectInputStream(socket.getInputStream());
+            setupEventHandlers();
+            frame = fr;
+            whiteboardPanel = panel;
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(null, "Could not connect to server: " + e.getMessage(), 
+                                         "Connection Error", JOptionPane.ERROR_MESSAGE);
+            System.exit(1);
+        }
+    }
+
+
     private void initializeUI() {
         frame = new JFrame("SyncSpace");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -53,7 +73,7 @@ public class WhiteboardClient {
         JButton clearBtn = new JButton("Clear");
         clearBtn.addActionListener(e -> {
             whiteboardPanel.clearCanvas();
-            sendClearAction();
+            sendClearAction(0);
         });
         toolBar.add(clearBtn);
         frame.add(toolBar, BorderLayout.NORTH);
@@ -77,14 +97,14 @@ public class WhiteboardClient {
             public void mousePressed(MouseEvent e) {
                 // Start drawing and send message to server
                 whiteboardPanel.startDrawing(new Point(e.getX(), e.getY()));
-                sendDrawAction("START:" + e.getX() + "," + e.getY());
+                sendDrawAction("START:" + e.getX() + "," + e.getY(), 0);
             }
 
             @Override
             public void mouseReleased(MouseEvent e) {
                 // End drawing and send message to server
                 whiteboardPanel.endDrawing();
-                sendDrawAction("END:" + e.getX() + "," + e.getY());
+                sendDrawAction("END:" + e.getX() + "," + e.getY(), 0);
             }
         });
 
@@ -93,7 +113,7 @@ public class WhiteboardClient {
             public void mouseDragged(MouseEvent e) {
                 // Continue drawing and send message to server
                 whiteboardPanel.continueDraw(new Point(e.getX(), e.getY()));
-                sendDrawAction("DRAG:" + e.getX() + "," + e.getY());
+                sendDrawAction("DRAG:" + e.getX() + "," + e.getY(), 0);
             }
         });
 
@@ -102,7 +122,7 @@ public class WhiteboardClient {
         chatInput.addActionListener(e -> {
             String message = chatInput.getText();
             if (!message.isEmpty()) {
-                sendMessage(message);
+                sendMessage(message, 0);
                 chatInput.setText("");
             }
         });
@@ -114,7 +134,7 @@ public class WhiteboardClient {
         sendButton.addActionListener(e -> {
             String message = chatInput.getText();
             if (!message.isEmpty()) {
-                sendMessage(message);
+                sendMessage(message, 0);
                 chatInput.setText("");
             }
         });
@@ -123,36 +143,76 @@ public class WhiteboardClient {
         frame.add(inputPanel, BorderLayout.SOUTH);
     }
 
-    private void sendMessage(String message) {
+    private void sendMessage(String message, int count) {
         try {
             outputStream.writeObject(new Message(Message.MessageType.TEXT, message, username));
             outputStream.flush();
             chatPanel.receiveMessage("You: " + message);
         } catch (IOException e) {
             e.printStackTrace();
-            showError("Error sending message: " + e.getMessage());
+            try {
+                if (count > 3) {
+                    // findNewLeader();
+                }
+                wait(7000);
+                sendMessage(message, count + 1);
+            } catch (InterruptedException e1) {
+                e1.printStackTrace();
+            }
         }
     }
 
-    private void sendDrawAction(String drawData) {
+    private void sendDrawAction(String drawData, int count)  {
         try {
             outputStream.writeObject(new Message(Message.MessageType.DRAW, drawData, username));
             outputStream.flush();
         } catch (IOException e) {
             e.printStackTrace();
             showError("Error sending draw action: " + e.getMessage());
+            try {
+                if (count > 3) {
+                    // findNewLeader();
+                }
+                wait(7000);
+                sendDrawAction(drawData, count + 1);
+            } catch (InterruptedException e1) {
+                e1.printStackTrace();
+            }
         }
     }
 
-    private void sendClearAction() {
+    private void sendClearAction(int count) {
         try {
             outputStream.writeObject(new Message(Message.MessageType.CLEAR, "CLEAR_ALL", username));
             outputStream.flush();
         } catch (IOException e) {
             e.printStackTrace();
             showError("Error sending clear action: " + e.getMessage());
+            try {
+                if (count > 3) {
+                    // findNewLeader();
+                }
+                wait(7000);
+                sendClearAction(count + 1);
+            } catch (InterruptedException e1) {
+                e1.printStackTrace();
+            }
         }
     }
+
+    // private void findNewLeader() {
+        
+    //     // Collect all server IPs including this one
+    //     List<String> allServerIps = new ArrayList<>(followerIps);
+        
+    //     // Simple bully algorithm: highest IP becomes leader
+    //     String highestIp = "";
+    //     for (String ip : allServerIps) {
+    //         if (ip.compareTo(highestIp) > 0) {
+    //             highestIp = ip;
+    //         }
+    //     }
+    // }
 
     private void startListeningForMessages() {
         new Thread(() -> {
