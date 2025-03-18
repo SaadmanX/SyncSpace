@@ -81,6 +81,9 @@ public class ClientHandler extends Thread {
                 if (registered) {
                     System.out.println("User " + username + " connected");
                     
+                    // Send drawing history to the new client
+                    server.sendDrawingHistoryToClient(this);
+                    
                     // Broadcast to all clients that a new user has joined
                     Message joinMessage = new Message(Message.MessageType.USER_JOIN, 
                                                    "has joined the whiteboard session", username);

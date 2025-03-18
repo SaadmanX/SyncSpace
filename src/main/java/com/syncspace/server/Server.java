@@ -18,6 +18,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import com.syncspace.common.Message;
 
 public class Server {
     private static final int PORT = 12345; // Client connection port
@@ -46,6 +47,9 @@ public class Server {
     private final Object connectLock = new Object();
     private volatile boolean connectingToLeader = false;
     private ScheduledFuture<?> leaderConnectFuture = null;
+
+    // Add a list to store all drawing actions
+    private final List<Message> drawingHistory = new CopyOnWriteArrayList<>();
 
     /**
      * Constructor for leader server.
@@ -499,9 +503,62 @@ public class Server {
     public void broadcastToAll(Object message, ClientHandler sender) {
         logMessage("Broadcasting message to all clients: " + message.toString());
         
+        // Store drawing actions in history
+        if (message instanceof Message) {
+            Message msg = (Message) message;
+            if (msg.getType() == Message.MessageType.DRAW || 
+                msg.getType() == Message.MessageType.CLEAR) {
+                drawingHistory.add(msg);
+                
+                // If CLEAR message, remove all previous drawing actions
+                if (msg.getType() == Message.MessageType.CLEAR) {
+                    drawingHistory.removeIf(m -> m.getType() == Message.MessageType.DRAW);
+                }
+                
+                // If leader, replicate drawing history to followers
+                if (isLeader()) {
+                    replicateDrawingToFollowers(msg);
+                }
+            }
+        }
+        
         for (ClientHandler client : connectedClients) {
             if (client != sender) {
                 client.sendMessage(message);
+            }
+        }
+    }
+    
+    /**
+     * Replicates drawing actions to all followers.
+     */
+    private void replicateDrawingToFollowers(Message drawingMessage) {
+        if (!isLeader()) return;
+        
+        for (ServerConnection conn : new ArrayList<>(serverConnections)) {
+            if (conn.getType() == ServerConnectionType.FOLLOWER) {
+                try {
+                    conn.sendMessage("DRAWING:" + drawingMessage);
+                } catch (IOException e) {
+                    System.err.println("Failed to replicate drawing to follower " + conn.getRemoteIp());
+                }
+            }
+        }
+    }
+    
+    /**
+     * Sends the entire drawing history to a specific client.
+     */
+    public void sendDrawingHistoryToClient(ClientHandler client) {
+        logMessage("Sending drawing history to new client. History size: " + drawingHistory.size());
+        
+        // First, send a message to clear any existing content
+        client.sendMessage(new Message(Message.MessageType.CLEAR, "CLEAR_ALL", "SERVER"));
+        
+        // Then send all drawing actions
+        for (Message drawAction : drawingHistory) {
+            if (drawAction.getType() == Message.MessageType.DRAW) {
+                client.sendMessage(drawAction);
             }
         }
     }
@@ -647,6 +704,36 @@ public class Server {
                         }
                         logMessage("Updated follower list from leader: " + followerIps);
                     }
+                }
+                else if (stringMessage.startsWith("DRAWING:")) {
+                    // Handle drawing replication from leader
+                    try {
+                        String drawingPart = stringMessage.substring(8);
+                        Object drawObj = deserialize(drawingPart);
+                        if (drawObj instanceof Message) {
+                            Message drawMsg = (Message) drawObj;
+                            if (drawMsg.getType() == Message.MessageType.DRAW || 
+                                drawMsg.getType() == Message.MessageType.CLEAR) {
+                                
+                                // Add to local drawing history if not already there
+                                if (!drawingHistory.contains(drawMsg)) {
+                                    drawingHistory.add(drawMsg);
+                                }
+                                
+                                // If it's a clear message, remove all drawing actions
+                                if (drawMsg.getType() == Message.MessageType.CLEAR) {
+                                    drawingHistory.removeIf(m -> m.getType() == Message.MessageType.DRAW);
+                                }
+                                
+                                // Forward to connected clients
+                                for (ClientHandler client : connectedClients) {
+                                    client.sendMessage(drawMsg);
+                                }
+                            }
+                        }
+                    } catch (Exception e) {
+                        logMessage("Error processing drawing message: " + e.getMessage());
+                    }
                 } else {
                     // Other string messages
                     logMessage("Received message: " + stringMessage);
@@ -718,6 +805,13 @@ public class Server {
         public ObjectOutputStream getOutputStream() {
             return outputStream;
         }
+    }
+    
+    // Helper method to deserialize objects (for drawing replication)
+    private Object deserialize(String serializedStr) {
+        // This is a simplified placeholder. In production code,
+        // you would need a proper serialization/deserialization mechanism.
+        return null; // Replace with actual deserialization
     }
     
     /**
