@@ -91,7 +91,7 @@ public class Server {
         startServerToServerListener(); 
         // Initialize server based on role
         if (isLeader()) {
-            // startServerToServerListener();
+            start();
         } else {
             connectToLeader();
         }
@@ -110,47 +110,56 @@ public class Server {
         System.out.println(timestamp + " " + serverType + " " + message);
     }
     
-    /**
-     * Starts the server-to-server listener (leader mode).
-     */
-    private void startServerToServerListener() {
-        if (!isLeader()) return;
-        
-        connectionThreadPool.execute(() -> {
-            try (ServerSocket serverSocket = new ServerSocket(SERVER_PORT)) {
-                serverServerSocket = serverSocket;
-                logMessage("Leader server is listening for followers on port " + SERVER_PORT);
-                
-                while (!Thread.currentThread().isInterrupted()) {
-                    try {
-                        logMessage("Waiting for follower connections...");
-                        Socket followerSocket = serverSocket.accept();
-                        String followerIp = followerSocket.getInetAddress().getHostAddress();
-                        logMessage("NEW FOLLOWER CONNECTED! IP: " + followerIp);
-                        
-                        // Create and register the connection
-                        ServerConnection connection = new ServerConnection(
-                            followerSocket, followerIp, ServerConnectionType.FOLLOWER);
-                        serverConnections.add(connection);
-                        followerIps.add(followerIp);
+   /**
+ * Starts the server-to-server listener for both leaders and followers.
+ */
+private void startServerToServerListener() {
+    // Remove this check to allow followers to listen too
+    // if (!isLeader()) return;
+    
+    connectionThreadPool.execute(() -> {
+        try (ServerSocket serverSocket = new ServerSocket(SERVER_PORT)) {
+            serverServerSocket = serverSocket;
+            
+            String role = isLeader() ? "Leader" : "Follower";
+            logMessage(role + " server is listening for server connections on port " + SERVER_PORT);
+            
+            while (!Thread.currentThread().isInterrupted()) {
+                try {
+                    logMessage("Waiting for server connections...");
+                    Socket incomingSocket = serverSocket.accept();
+                    String remoteIp = incomingSocket.getInetAddress().getHostAddress();
+                    logMessage("NEW SERVER CONNECTION from: " + remoteIp);
+                    
+                    // Create connection handler - connection type depends on server role
+                    ServerConnectionType type = isLeader() ? ServerConnectionType.FOLLOWER : ServerConnectionType.LEADER;
+                    
+                    // For election coordination, the connection type is determined later
+                    ServerConnection connection = new ServerConnection(incomingSocket, remoteIp, type);
+                    serverConnections.add(connection);
+                    
+                    // If we're the leader and this is a follower connecting
+                    if (isLeader()) {
+                        followerIps.add(remoteIp);
                         sendFollowersToClients();
                         pingFollowers();
-
-                        // Start connection handler
-                        connection.start();
-                    } catch (IOException e) {
-                        if (!serverSocket.isClosed()) {
-                            logMessage("ERROR accepting follower connection: " + e.getMessage());
-                        } else {
-                            break;
-                        }
+                    }
+                    
+                    // Start connection handler
+                    connection.start();
+                } catch (IOException e) {
+                    if (!serverSocket.isClosed()) {
+                        logMessage("ERROR accepting server connection: " + e.getMessage());
+                    } else {
+                        break;
                     }
                 }
-            } catch (IOException e) {
-                logMessage("ERROR in server-to-server listener: " + e.getMessage());
             }
-        });
-    }
+        } catch (IOException e) {
+            logMessage("ERROR in server-to-server listener: " + e.getMessage());
+        }
+    });
+}
     
     /**
      * Connects to the leader server (follower mode).
