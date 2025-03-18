@@ -815,7 +815,7 @@ public class Server {
     }
     
     /**
-     * Main method.
+     * Main method. this will start either a leader or a follower
      */
     public static void main(String[] args) {
         Server server;
