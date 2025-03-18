@@ -36,7 +36,7 @@ public class Server {
     private final ScheduledExecutorService schedulerThreadPool;
     
     // Server connection management
-    private final List<ServerConnection> serverConnections = new CopyOnWriteArrayList<>();
+    // private final List<ServerConnection> serverConnections = new CopyOnWriteArrayList<>();
     // Track followers
     private final List<String> followerIps = new CopyOnWriteArrayList<>();
 
@@ -128,15 +128,15 @@ public class Server {
                         logMessage("NEW FOLLOWER CONNECTED! IP: " + followerIp);
                         
                         // Create and register the connection
-                        ServerConnection connection = new ServerConnection(
-                            followerSocket, followerIp, ServerConnectionType.FOLLOWER);
-                        serverConnections.add(connection);
+                        // ServerConnection connection = new ServerConnection(
+                        //     followerSocket, followerIp, ServerConnectionType.FOLLOWER);
+                        // serverConnections.add(connection);
                         followerIps.add(followerIp);
                         sendFollowersToClients();
                         pingFollowers();
 
                         // Start connection handler
-                        connection.start();
+                        // connection.start();
                     } catch (IOException e) {
                         if (!serverSocket.isClosed()) {
                             logMessage("ERROR accepting follower connection: " + e.getMessage());
@@ -183,19 +183,19 @@ public class Server {
                     Socket leaderSocket = new Socket(leaderIp, SERVER_PORT);
                     logMessage("CONNECTED TO LEADER SUCCESSFULLY at " + leaderIp);
                     
-                    // Remove any existing leader connections
-                    for (ServerConnection conn : new ArrayList<>(serverConnections)) {
-                        if (conn.getType() == ServerConnectionType.LEADER) {
-                            conn.close();
-                            serverConnections.remove(conn);
-                        }
-                    }
+                    // // Remove any existing leader connections
+                    // for (ServerConnection conn : new ArrayList<>(serverConnections)) {
+                    //     if (conn.getType() == ServerConnectionType.LEADER) {
+                    //         conn.close();
+                    //         serverConnections.remove(conn);
+                    //     }
+                    // }
                     
                     // Create and register the leader connection
-                    ServerConnection connection = new ServerConnection(
-                            leaderSocket, leaderIp, ServerConnectionType.LEADER);
-                    serverConnections.add(connection);
-                    connection.start();
+                    // ServerConnection connection = new ServerConnection(
+                    //         leaderSocket, leaderIp, ServerConnectionType.LEADER);
+                    // serverConnections.add(connection);
+                    // connection.start();
                     
                     // Connection succeeded, cancel further attempts.
                     cancelLeaderConnectTask();
@@ -262,12 +262,12 @@ public class Server {
         if (!isLeader()) return;
 
         // Build follower IP list from active connections
-        followerIps.clear();
-        for (ServerConnection conn : serverConnections) {
-            if (conn.getType() == ServerConnectionType.FOLLOWER) {
-                followerIps.add(conn.getRemoteIp());
-            }
-        }
+        // followerIps.clear();
+        // for (ServerConnection conn : serverConnections) {
+        //     if (conn.getType() == ServerConnectionType.FOLLOWER) {
+        //         followerIps.add(conn.getRemoteIp());
+        //     }
+        // }
         
         logMessage("LEADER PING - Current leader IP: " + serverIp);
         logMessage("Total followers to ping: " + followerIps.size());
@@ -278,18 +278,19 @@ public class Server {
         }
         
         String pingMessage = String.join(" * ", followerIps);
+        // TODO: send message to followers somehow to tell them the IP addresses of the leader
         
-        for (ServerConnection conn : new ArrayList<>(serverConnections)) {
-            if (conn.getType() == ServerConnectionType.FOLLOWER) {
-                try {
-                    logMessage("Sending ping to follower: " + conn.getRemoteIp());
-                    conn.sendMessage(pingMessage);
-                    logMessage("Ping sent successfully to follower: " + conn.getRemoteIp());
-                } catch (IOException e) {
-                    logMessage("ERROR pinging follower " + conn.getRemoteIp() + ": " + e.getMessage());
-                }
-            }
-        }
+        // for (ServerConnection conn : new ArrayList<>(serverConnections)) {
+        //     if (conn.getType() == ServerConnectionType.FOLLOWER) {
+        //         try {
+        //             logMessage("Sending ping to follower: " + conn.getRemoteIp());
+        //             conn.sendMessage(pingMessage);
+        //             logMessage("Ping sent successfully to follower: " + conn.getRemoteIp());
+        //         } catch (IOException e) {
+        //             logMessage("ERROR pinging follower " + conn.getRemoteIp() + ": " + e.getMessage());
+        //         }
+        //     }
+        // }
     }
     
     /**
@@ -319,14 +320,14 @@ public class Server {
     /**
      * Retrieves the leader connection (follower mode).
      */
-    private ServerConnection getLeaderConnection() {
-        for (ServerConnection conn : serverConnections) {
-            if (conn.getType() == ServerConnectionType.LEADER) {
-                return conn;
-            }
-        }
-        return null;
-    }
+    // private ServerConnection getLeaderConnection() {
+    //     for (ServerConnection conn : serverConnections) {
+    //         if (conn.getType() == ServerConnectionType.LEADER) {
+    //             return conn;
+    //         }
+    //     }
+    //     return null;
+    // }
     
     /**
      * Starts the election process.
@@ -379,10 +380,12 @@ public class Server {
         
         logMessage("TRANSITIONING TO LEADER MODE");
         
-        for (ServerConnection conn : new ArrayList<>(serverConnections)) {
-            conn.close();
-        }
-        serverConnections.clear();
+        // for (ServerConnection conn : new ArrayList<>(serverConnections)) {
+        //     conn.close();
+        // }
+        // serverConnections.clear();
+
+        // TODO: send message to everyone that i am the leader. handle the consequences in the other method
         
         followerIps.remove(serverIp);
         logMessage("Removed self from follower list: " + serverIp);
@@ -494,25 +497,19 @@ public class Server {
     public List<String> getFollowerIps() {
         return new ArrayList<>(followerIps);
     }
-    
-    /**
-     * Gets the leader output stream (follower mode).
-     */
-    public ObjectOutputStream getLeaderOutputStream() {
-        ServerConnection leaderConn = getLeaderConnection();
-        return leaderConn != null ? leaderConn.getOutputStream() : null;
-    }
-    
+        
     /**
      * Shuts down the server and releases resources.
      */
     public void shutdown() {
         logMessage("Shutting down server...");
         
-        for (ServerConnection conn : new ArrayList<>(serverConnections)) {
-            conn.close();
-        }
-        serverConnections.clear();
+        // for (ServerConnection conn : new ArrayList<>(serverConnections)) {
+        //     conn.close();
+        // }
+        // serverConnections.clear();
+
+        // TODO: clean up all the maps for connections and output streams
         
         try {
             if (clientServerSocket != null && !clientServerSocket.isClosed()) {
@@ -535,152 +532,143 @@ public class Server {
         
         logMessage("Server shutdown complete");
     }
-    
-    /**
-     * Server connection types.
-     */
-    private enum ServerConnectionType {
-        LEADER,
-        FOLLOWER
-    }
-    
     /**
      * Handles server-to-server connections.
      */
-    private class ServerConnection {
-        private final Socket socket;
-        private final String remoteIp;
-        private final ServerConnectionType type;
-        private ObjectOutputStream outputStream;
-        private ObjectInputStream inputStream;
+    // private class ServerConnection {
+    //     private final Socket socket;
+    //     private final String remoteIp;
+    //     private final ServerConnectionType type;
+    //     private ObjectOutputStream outputStream;
+    //     private ObjectInputStream inputStream;
         
-        public ServerConnection(Socket socket, String remoteIp, ServerConnectionType type) {
-            this.socket = socket;
-            this.remoteIp = remoteIp;
-            this.type = type;
-        }
+    //     public ServerConnection(Socket socket, String remoteIp, ServerConnectionType type) {
+    //         this.socket = socket;
+    //         this.remoteIp = remoteIp;
+    //         this.type = type;
+    //     }
         
-        /**
-         * Starts the connection handler.
-         */
-        public void start() {
-            connectionThreadPool.execute(() -> {
-                try {
-                    outputStream = new ObjectOutputStream(socket.getOutputStream());
-                    outputStream.flush();
-                    inputStream = new ObjectInputStream(socket.getInputStream());
+    //     /**
+    //      * Starts the connection handler.
+    //      */
+    //     public void start() {
+    //         connectionThreadPool.execute(() -> {
+    //             try {
+    //                 outputStream = new ObjectOutputStream(socket.getOutputStream());
+    //                 outputStream.flush();
+    //                 inputStream = new ObjectInputStream(socket.getInputStream());
                     
-                    logMessage("Communication streams established with " + type.name().toLowerCase() + ": " + remoteIp);
+    //                 logMessage("Communication streams established with " + type.name().toLowerCase() + ": " + remoteIp);
                     
-                    while (!Thread.currentThread().isInterrupted() && !socket.isClosed()) {
-                        try {
-                            Object message = inputStream.readObject();
-                            handleMessage(message);
-                        } catch (ClassNotFoundException e) {
-                            logMessage("ERROR: Received unknown object type: " + e.getMessage());
-                        }
-                    }
-                } catch (IOException e) {
-                    String role = type == ServerConnectionType.LEADER ? "leader" : "follower";
-                    logMessage("Connection to " + role + " lost: " + e.getMessage());
+    //                 while (!Thread.currentThread().isInterrupted() && !socket.isClosed()) {
+    //                     try {
+    //                         Object message = inputStream.readObject();
+    //                         handleMessage(message);
+    //                     } catch (ClassNotFoundException e) {
+    //                         logMessage("ERROR: Received unknown object type: " + e.getMessage());
+    //                     }
+    //                 }
+    //             } catch (IOException e) {
+    //                 String role = type == ServerConnectionType.LEADER ? "leader" : "follower";
+    //                 logMessage("Connection to " + role + " lost: " + e.getMessage());
                     
-                    if (type == ServerConnectionType.LEADER && !isLeader()) {
-                        connectToLeader();
-                    }
-                } finally {
-                    close();
-                }
-            });
-        }
+    //                 if (type == ServerConnectionType.LEADER && !isLeader()) {
+    //                     connectToLeader();
+    //                 }
+    //             } finally {
+    //                 close();
+    //             }
+    //         });
+    //     }
         
-        /**
-         * Handles incoming messages.
-         */
-        private void handleMessage(Object message) {
-            if (message instanceof String) {
-                String typeName = type == ServerConnectionType.LEADER ? "leader" : "follower";
-                String pingMessage = (String) message;
-                logMessage("PING RECEIVED from " + typeName + " [" + remoteIp + "]: " + pingMessage);
+    //     /**
+    //      * Handles incoming messages.
+    //      */
+    //     private void handleMessage(Object message) {
+    //         if (message instanceof String) {
+    //             String typeName = type == ServerConnectionType.LEADER ? "leader" : "follower";
+    //             String pingMessage = (String) message;
+    //             logMessage("PING RECEIVED from " + typeName + " [" + remoteIp + "]: " + pingMessage);
                 
-                // If leader, update follower list based on ping message
-                if (type == ServerConnectionType.LEADER && pingMessage.contains("*")) {
-                    followerIps.clear();
-                    String[] ips = pingMessage.split("\\s*\\*\\s*");
-                    for (String ip : ips) {
-                        if (!ip.trim().isEmpty()) {
-                            followerIps.add(ip.trim());
-                        }
-                    }
-                    logMessage("Updated follower list from leader: " + followerIps);
-                }
-            } else {
-                logMessage("Received unknown message type: " + message.getClass().getName());
-            }
-        }
+    //             // If leader, update follower list based on ping message
+    //             if (type == ServerConnectionType.LEADER && pingMessage.contains("*")) {
+    //                 followerIps.clear();
+    //                 String[] ips = pingMessage.split("\\s*\\*\\s*");
+    //                 for (String ip : ips) {
+    //                     if (!ip.trim().isEmpty()) {
+    //                         followerIps.add(ip.trim());
+    //                     }
+    //                 }
+    //                 logMessage("Updated follower list from leader: " + followerIps);
+    //             }
+    //         } else {
+    //             logMessage("Received unknown message type: " + message.getClass().getName());
+    //         }
+    //     }
         
-        /**
-         * Sends a message to the remote server.
-         */
-        public void sendMessage(Object message) throws IOException {
-            if (outputStream != null) {
-                synchronized (outputStream) {
-                    outputStream.writeObject(message);
-                    outputStream.flush();
-                }
-            } else {
-                throw new IOException("Output stream is not initialized");
-            }
-        }
+    //     /**
+    //      * Sends a message to the remote server.
+    //      */
+    //     public void sendMessage(Object message) throws IOException {
+    //         if (outputStream != null) {
+    //             synchronized (outputStream) {
+    //                 outputStream.writeObject(message);
+    //                 outputStream.flush();
+    //             }
+    //         } else {
+    //             throw new IOException("Output stream is not initialized");
+    //         }
+    //     }
         
-        /**
-         * Closes the connection and cleans up resources.
-         */
-        public void close() {
-            try {
-                if (outputStream != null) {
-                    outputStream.close();
-                }
-                if (inputStream != null) {
-                    inputStream.close();
-                }
-                if (socket != null && !socket.isClosed()) {
-                    socket.close();
-                }
-            } catch (IOException e) {
-                logMessage("Error closing connection resources: " + e.getMessage());
-            }
+    //     /**
+    //      * Closes the connection and cleans up resources.
+    //      */
+    //     public void close() {
+    //         try {
+    //             if (outputStream != null) {
+    //                 outputStream.close();
+    //             }
+    //             if (inputStream != null) {
+    //                 inputStream.close();
+    //             }
+    //             if (socket != null && !socket.isClosed()) {
+    //                 socket.close();
+    //             }
+    //         } catch (IOException e) {
+    //             logMessage("Error closing connection resources: " + e.getMessage());
+    //         }
             
-            serverConnections.remove(this);
-            String typeName = type == ServerConnectionType.LEADER ? "Leader" : "Follower";
-            logMessage(typeName + " " + remoteIp + " disconnected. Active server connections: " + serverConnections.size());
-            followerIps.remove(getRemoteIp());
-            if (isLeader() && type == ServerConnectionType.FOLLOWER) {
-                sendFollowersToClients();
-                pingFollowers();
-            }
-        }
+    //         serverConnections.remove(this);
+    //         String typeName = type == ServerConnectionType.LEADER ? "Leader" : "Follower";
+    //         logMessage(typeName + " " + remoteIp + " disconnected. Active server connections: " + serverConnections.size());
+    //         followerIps.remove(getRemoteIp());
+    //         if (isLeader() && type == ServerConnectionType.FOLLOWER) {
+    //             sendFollowersToClients();
+    //             pingFollowers();
+    //         }
+    //     }
         
-        /**
-         * Gets the remote IP address.
-         */
-        public String getRemoteIp() {
-            return remoteIp;
-        }
+    //     /**
+    //      * Gets the remote IP address.
+    //      */
+    //     public String getRemoteIp() {
+    //         return remoteIp;
+    //     }
         
-        /**
-         * Gets the connection type.
-         */
-        public ServerConnectionType getType() {
-            return type;
-        }
+    //     /**
+    //      * Gets the connection type.
+    //      */
+    //     public ServerConnectionType getType() {
+    //         return type;
+    //     }
         
-        /**
-         * Gets the output stream.
-         */
-        public ObjectOutputStream getOutputStream() {
-            return outputStream;
-        }
-    }
+    //     /**
+    //      * Gets the output stream.
+    //      */
+    //     public ObjectOutputStream getOutputStream() {
+    //         return outputStream;
+    //     }
+    // }
     
     /**
      * Main method.
