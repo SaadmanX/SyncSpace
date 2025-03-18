@@ -535,13 +535,10 @@ public class Server {
     private void replicateDrawingToFollowers(Message drawingMessage) {
         if (!isLeader()) return;
         
-        // Serialize the message
-        String serializedMsg = serialize(drawingMessage);
-        
         for (ServerConnection conn : new ArrayList<>(serverConnections)) {
             if (conn.getType() == ServerConnectionType.FOLLOWER) {
                 try {
-                    conn.sendMessage("DRAWING:" + serializedMsg);
+                    conn.sendMessage("DRAWING:" + drawingMessage);
                 } catch (IOException e) {
                     System.err.println("Failed to replicate drawing to follower " + conn.getRemoteIp());
                 }
@@ -810,26 +807,11 @@ public class Server {
         }
     }
     
+    // Helper method to deserialize objects (for drawing replication)
     private Object deserialize(String serializedStr) {
-        try {
-            // Use Gson for serialization/deserialization
-            com.google.gson.Gson gson = new com.google.gson.Gson();
-            return gson.fromJson(serializedStr, Message.class);
-        } catch (Exception e) {
-            logMessage("Error deserializing object: " + e.getMessage());
-            return null;
-        }
-    }
-    
-    // Also need to add a serialize method
-    private String serialize(Object obj) {
-        try {
-            com.google.gson.Gson gson = new com.google.gson.Gson();
-            return gson.toJson(obj);
-        } catch (Exception e) {
-            logMessage("Error serializing object: " + e.getMessage());
-            return "";
-        }
+        // This is a simplified placeholder. In production code,
+        // you would need a proper serialization/deserialization mechanism.
+        return null; // Replace with actual deserialization
     }
     
     /**
