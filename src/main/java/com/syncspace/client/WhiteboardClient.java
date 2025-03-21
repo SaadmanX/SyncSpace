@@ -95,14 +95,14 @@ public class WhiteboardClient {
             @Override
             public void mousePressed(MouseEvent e) {
                 // Start drawing and send message to server
-                whiteboardPanel.startDrawing(new Point(e.getX(), e.getY()));
+                whiteboardPanel.startDrawing(new Point(e.getX(), e.getY()), username);
                 sendDrawAction("START:" + e.getX() + "," + e.getY(), 0);
             }
 
             @Override
             public void mouseReleased(MouseEvent e) {
                 // End drawing and send message to server
-                whiteboardPanel.endDrawing();
+                whiteboardPanel.endDrawing(username);
                 sendDrawAction("END:" + e.getX() + "," + e.getY(), 0);
             }
         });
@@ -111,7 +111,7 @@ public class WhiteboardClient {
             @Override
             public void mouseDragged(MouseEvent e) {
                 // Continue drawing and send message to server
-                whiteboardPanel.continueDraw(new Point(e.getX(), e.getY()));
+                whiteboardPanel.continueDraw(new Point(e.getX(), e.getY()), username);
                 sendDrawAction("DRAG:" + e.getX() + "," + e.getY(), 0);
             }
         });
@@ -161,9 +161,9 @@ public class WhiteboardClient {
         }
     }
 
-    private void sendDrawAction(String drawData, int count)  {
+    private void sendDrawAction(String drawData, int count) {
         try {
-            outputStream.writeObject(new Message(Message.MessageType.DRAW, drawData, username));
+            outputStream.writeObject(new Message(Message.MessageType.DRAW, drawData + ";" + username, username));
             outputStream.flush();
         } catch (IOException e) {
             e.printStackTrace();
@@ -276,20 +276,25 @@ public class WhiteboardClient {
     }
 
     private void handleDrawAction(String actionData) {
-        if (actionData.startsWith("START:")) {
-            String coords = actionData.substring(6);
-            String[] parts = coords.split(",");
-            int x = Integer.parseInt(parts[0]);
-            int y = Integer.parseInt(parts[1]);
-            whiteboardPanel.startDrawing(new Point(x, y));
-        } else if (actionData.startsWith("DRAG:")) {
-            String coords = actionData.substring(5);
-            String[] parts = coords.split(",");
-            int x = Integer.parseInt(parts[0]);
-            int y = Integer.parseInt(parts[1]);
-            whiteboardPanel.continueDraw(new Point(x, y));
-        } else if (actionData.startsWith("END:")) {
-            whiteboardPanel.endDrawing();
+        // Extract user ID from the action data
+        String[] parts = actionData.split(";");
+        String action = parts[0];
+        String userId = parts.length > 1 ? parts[1] : "unknown";
+        
+        if (action.startsWith("START:")) {
+            String coords = action.substring(6);
+            String[] coordParts = coords.split(",");
+            int x = Integer.parseInt(coordParts[0]);
+            int y = Integer.parseInt(coordParts[1]);
+            whiteboardPanel.startDrawing(new Point(x, y), userId);
+        } else if (action.startsWith("DRAG:")) {
+            String coords = action.substring(5);
+            String[] coordParts = coords.split(",");
+            int x = Integer.parseInt(coordParts[0]);
+            int y = Integer.parseInt(coordParts[1]);
+            whiteboardPanel.continueDraw(new Point(x, y), userId);
+        } else if (action.startsWith("END:")) {
+            whiteboardPanel.endDrawing(userId);
         }
     }
 
