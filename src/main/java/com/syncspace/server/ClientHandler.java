@@ -84,6 +84,12 @@ public class ClientHandler extends Thread {
                     // Send drawing history to the new client
                     server.sendDrawingHistoryToClient(this);
                     
+                    // Send follower list to the new client if the server is a leader
+                    if (server.isLeader()) {
+                        String followerList = String.join(" * ", server.getFollowerIps());
+                        sendMessage("SERVER_FOLLOWER_LIST:" + followerList);
+                    }
+                    
                     // Broadcast to all clients that a new user has joined
                     Message joinMessage = new Message(Message.MessageType.USER_JOIN, 
                                                    "has joined the whiteboard session", username);

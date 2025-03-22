@@ -258,12 +258,22 @@ public class WhiteboardClient {
         // Client lost connection to server
         chatPanel.receiveMessage("*** Connection to server lost. Attempting to reconnect... ***");
         
+        // First, let's wait to allow leader election to complete (5 seconds)
+        chatPanel.receiveMessage("Waiting for servers to complete leadership election...");
+        try {
+            Thread.sleep(5000);  // 5 seconds delay for leader election
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        
         // Try to reconnect to servers in the follower list
         List<String> serverCandidates = new ArrayList<>(followerIps);
         serverCandidates.add(0, socket.getInetAddress().getHostAddress()); // Add current server first
         System.out.println("These are all the candidates:\n" + serverCandidates);
+        
         // Remove servers we've already tried that failed
         serverCandidates.removeIf(ip -> ip.equals(socket.getInetAddress().getHostAddress()));
+        
         if (serverCandidates.isEmpty()) {
             showError("No backup servers available. Please restart the application.");
             return;
@@ -279,6 +289,7 @@ public class WhiteboardClient {
                 if (socket != null) socket.close();
                 
                 // Connect to new server
+                System.out.println("Trying to connect to: " + serverIp);
                 socket = new Socket(serverIp, 12345);
                 outputStream = new ObjectOutputStream(socket.getOutputStream());
                 outputStream.flush();
@@ -291,11 +302,27 @@ public class WhiteboardClient {
                 return; // Successfully reconnected
             } catch (IOException e) {
                 chatPanel.receiveMessage("Failed to connect to " + serverIp + ": " + e.getMessage());
+                
+                // Add a short delay between connection attempts
+                try {
+                    Thread.sleep(2000);  // 2 seconds delay between attempts
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                }
             }
         }
         
         // If we get here, all reconnection attempts failed
-        showError("Failed to reconnect to any available server. Please restart the application.");
+        chatPanel.receiveMessage("All reconnection attempts failed. Waiting 10 seconds before trying again...");
+        
+        // Wait longer and try again with a recursive call
+        try {
+            Thread.sleep(10000);  // 10 seconds wait before retrying the whole process
+            handleServerDisconnection();  // Recursive call to try again
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            showError("Failed to reconnect to any available server. Please restart the application.");
+        }
     }
 
     private void handleMessage(Message message) {
