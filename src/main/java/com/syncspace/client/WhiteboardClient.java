@@ -201,10 +201,8 @@ public class WhiteboardClient {
     }
 
     // private void findNewLeader() {
-        
     //     // Collect all server IPs including this one
     //     List<String> allServerIps = new ArrayList<>(followerIps);
-        
     //     // Simple bully algorithm: highest IP becomes leader
     //     String highestIp = "";
     //     for (String ip : allServerIps) {
@@ -263,10 +261,9 @@ public class WhiteboardClient {
         // Try to reconnect to servers in the follower list
         List<String> serverCandidates = new ArrayList<>(followerIps);
         serverCandidates.add(0, socket.getInetAddress().getHostAddress()); // Add current server first
-        
+        System.out.println("These are all the candidates:\n" + serverCandidates);
         // Remove servers we've already tried that failed
         serverCandidates.removeIf(ip -> ip.equals(socket.getInetAddress().getHostAddress()));
-        
         if (serverCandidates.isEmpty()) {
             showError("No backup servers available. Please restart the application.");
             return;

@@ -289,9 +289,9 @@ public class Server {
         if (!isLeader()) return;
 
         // Build follower IP list from active connections
-        followerIps.clear();
+        // followerIps.clear();
         for (ServerConnection conn : serverConnections) {
-            if (conn.getType() == ServerConnectionType.FOLLOWER) {
+            if ((conn.getType() == ServerConnectionType.FOLLOWER) && !(followerIps.contains(conn.getRemoteIp())) ){
                 followerIps.add(conn.getRemoteIp());
             }
         }
