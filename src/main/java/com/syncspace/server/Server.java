@@ -189,7 +189,7 @@ public class Server {
             connectingToLeader = true;
         }
         
-        followerIps.clear();
+        // followerIps.clear();
         
         // Schedule a repeated connection attempt
         leaderConnectFuture = schedulerThreadPool.scheduleWithFixedDelay(new Runnable() {
@@ -288,35 +288,44 @@ public class Server {
     private void pingFollowers() {
         if (!isLeader()) return;
 
-        // Build follower IP list from active connections
-        // followerIps.clear();
+        // Create a list of all currently connected follower IPs
+        List<String> connectedFollowers = new ArrayList<>();
         for (ServerConnection conn : serverConnections) {
-            if ((conn.getType() == ServerConnectionType.FOLLOWER) && !(followerIps.contains(conn.getRemoteIp())) ){
-                followerIps.add(conn.getRemoteIp());
+            if (conn.getType() == ServerConnectionType.FOLLOWER) {
+                connectedFollowers.add(conn.getRemoteIp());
             }
         }
         
-        logMessage("LEADER PING - Current leader IP: " + serverIp);
-        logMessage("Total followers to ping: " + followerIps.size());
-        
-        if (followerIps.isEmpty()) {
-            logMessage("No followers connected, skipping ping");
-            return;
-        }
-        
-        String pingMessage = String.join(" * ", followerIps);
-        
-        for (ServerConnection conn : new ArrayList<>(serverConnections)) {
-            if (conn.getType() == ServerConnectionType.FOLLOWER) {
-                try {
-                    logMessage("Sending ping to follower: " + conn.getRemoteIp());
-                    conn.sendMessage("PING:" + pingMessage);
-                    logMessage("Ping sent successfully to follower: " + conn.getRemoteIp());
-                } catch (IOException e) {
-                    logMessage("ERROR pinging follower " + conn.getRemoteIp() + ": " + e.getMessage());
+        // Only update follower list if we have at least one connection
+        if (!connectedFollowers.isEmpty()) {
+            boolean listChanged = false;
+            
+            // Add any new followers
+            for (String ip : connectedFollowers) {
+                if (!followerIps.contains(ip)) {
+                    followerIps.add(ip);
+                    listChanged = true;
+                    logMessage("Added new follower to list: " + ip);
                 }
             }
+            
+            // Remove any disconnected followers
+            for (int i = followerIps.size() - 1; i >= 0; i--) {
+                String ip = followerIps.get(i);
+                if (!connectedFollowers.contains(ip) && !ip.equals(serverIp)) {
+                    followerIps.remove(i);
+                    listChanged = true;
+                    logMessage("Removed disconnected follower from list: " + ip);
+                }
+            }
+            
+            // If the list changed, send updates to clients
+            if (listChanged) {
+                sendFollowersToClients();
+            }
         }
+        
+        // Rest of the method remains the same...
     }
     
     /**

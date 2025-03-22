@@ -24,6 +24,7 @@ public class WhiteboardClient {
     private ChatPanel chatPanel;
     private String username;
     private final List<String> followerIps = new CopyOnWriteArrayList<>();
+    private final List<String> knownServerIps = new CopyOnWriteArrayList<>();
 
 
     public WhiteboardClient(String serverAddress, int serverPort) {
@@ -266,9 +267,22 @@ public class WhiteboardClient {
             Thread.currentThread().interrupt();
         }
         
-        // Try to reconnect to servers in the follower list
-        List<String> serverCandidates = new ArrayList<>(followerIps);
-        serverCandidates.add(0, socket.getInetAddress().getHostAddress()); // Add current server first
+        // Try to reconnect to all known servers
+        List<String> serverCandidates = new ArrayList<>();
+        
+        // First try the current server
+        serverCandidates.add(socket.getInetAddress().getHostAddress());
+        
+        // Then try all followers
+        serverCandidates.addAll(followerIps);
+        
+        // Then try all other known servers
+        for (String ip : knownServerIps) {
+            if (!serverCandidates.contains(ip)) {
+                serverCandidates.add(ip);
+            }
+        }
+        
         System.out.println("These are all the candidates:\n" + serverCandidates);
         
         // Remove servers we've already tried that failed
@@ -405,7 +419,7 @@ public class WhiteboardClient {
     }
 
     private void updateFollowerList(String followerListString) {
-        // Clear the current list
+        // Clear the current follower list
         followerIps.clear();
         
         // Parse the new list (format: "ip1 * ip2 * ip3")
@@ -414,12 +428,22 @@ public class WhiteboardClient {
             for (String ip : ips) {
                 if (!ip.trim().isEmpty()) {
                     followerIps.add(ip.trim());
+                    // Also add to known servers if not already there
+                    if (!knownServerIps.contains(ip.trim())) {
+                        knownServerIps.add(ip.trim());
+                    }
                 }
             }
         }
         
-        // Log the updated follower list
+        // Add the current server to known servers if not already there
+        String currentServer = socket.getInetAddress().getHostAddress();
+        if (!knownServerIps.contains(currentServer)) {
+            knownServerIps.add(currentServer);
+        }
+        
         System.out.println("Updated follower server list: " + followerIps);
+        System.out.println("Known server list: " + knownServerIps);
 
         updateFollowerListUI();
     }
