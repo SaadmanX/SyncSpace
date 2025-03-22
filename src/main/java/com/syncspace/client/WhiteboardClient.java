@@ -13,6 +13,7 @@ import java.io.ObjectOutputStream;
 import java.net.Socket;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.List;
+import java.util.ArrayList;
 
 public class WhiteboardClient {
     private Socket socket;
@@ -215,38 +216,89 @@ public class WhiteboardClient {
 
     private void startListeningForMessages() {
         new Thread(() -> {
-            while (true) {
-                try {
-                    Object input = inputStream.readObject();
-                    if (input instanceof Message) {
-                        handleMessage((Message) input);
-                    } else if (input instanceof String) {
-                        String message = (String) input;
-                        if (message.startsWith("SERVER_FOLLOWER_LIST:")) {
-                            // Extract the follower list part
-                            String followerListPart = message.substring("SERVER_FOLLOWER_LIST:".length());
-                            updateFollowerList(followerListPart);
-                        } else {
-                            // Handle regular string messages as before
-                            chatPanel.receiveMessage(message);
-                        }                    
-                    } else if (input instanceof Boolean) {
-                        // This is a response to the registration process
-                        boolean success = (Boolean) input;
-                        if (success) {
-                            chatPanel.receiveMessage("Successfully connected to the server!");
-                        } else {
-                            showError("Failed to register. Username might be taken.");
-                            System.exit(0);
+            try {
+                while (true) {
+                    try {
+                        Object input = inputStream.readObject();
+                        // Process messages as before...
+                        if (input instanceof Message) {
+                            handleMessage((Message) input);
+                        } else if (input instanceof String) {
+                            String message = (String) input;
+                            if (message.startsWith("SERVER_FOLLOWER_LIST:")) {
+                                // Extract the follower list part
+                                String followerListPart = message.substring("SERVER_FOLLOWER_LIST:".length());
+                                updateFollowerList(followerListPart);
+                            } else if (message.equals("SERVER_LEADERSHIP_CHANGE")) {
+                                chatPanel.receiveMessage("*** Server leadership has changed ***");
+                            } else {
+                                // Handle regular string messages
+                                chatPanel.receiveMessage(message);
+                            }                    
+                        } else if (input instanceof Boolean) {
+                            // Registration response
+                            boolean success = (Boolean) input;
+                            if (success) {
+                                chatPanel.receiveMessage("Successfully connected to the server!");
+                            } else {
+                                showError("Failed to register. Username might be taken.");
+                                System.exit(0);
+                            }
                         }
+                    } catch (ClassNotFoundException e) {
+                        chatPanel.receiveMessage("Error processing message: " + e.getMessage());
                     }
-                } catch (IOException | ClassNotFoundException e) {
-                    e.printStackTrace();
-                    showError("Connection to server lost: " + e.getMessage());
-                    break;
                 }
+            } catch (IOException e) {
+                // Connection to server lost
+                handleServerDisconnection();
             }
         }).start();
+    }
+
+    private void handleServerDisconnection() {
+        // Client lost connection to server
+        chatPanel.receiveMessage("*** Connection to server lost. Attempting to reconnect... ***");
+        
+        // Try to reconnect to servers in the follower list
+        List<String> serverCandidates = new ArrayList<>(followerIps);
+        serverCandidates.add(0, socket.getInetAddress().getHostAddress()); // Add current server first
+        
+        // Remove servers we've already tried that failed
+        serverCandidates.removeIf(ip -> ip.equals(socket.getInetAddress().getHostAddress()));
+        
+        if (serverCandidates.isEmpty()) {
+            showError("No backup servers available. Please restart the application.");
+            return;
+        }
+        
+        // Try each server in the follower list
+        for (String serverIp : serverCandidates) {
+            chatPanel.receiveMessage("Attempting to connect to server at " + serverIp);
+            try {
+                // Close existing connection resources
+                if (outputStream != null) outputStream.close();
+                if (inputStream != null) inputStream.close();
+                if (socket != null) socket.close();
+                
+                // Connect to new server
+                socket = new Socket(serverIp, 12345);
+                outputStream = new ObjectOutputStream(socket.getOutputStream());
+                outputStream.flush();
+                inputStream = new ObjectInputStream(socket.getInputStream());
+                
+                // Re-register with the same username
+                registerUser(username);
+                
+                chatPanel.receiveMessage("*** Successfully reconnected to server at " + serverIp + " ***");
+                return; // Successfully reconnected
+            } catch (IOException e) {
+                chatPanel.receiveMessage("Failed to connect to " + serverIp + ": " + e.getMessage());
+            }
+        }
+        
+        // If we get here, all reconnection attempts failed
+        showError("Failed to reconnect to any available server. Please restart the application.");
     }
 
     private void handleMessage(Message message) {

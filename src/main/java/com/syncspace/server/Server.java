@@ -416,7 +416,10 @@ public class Server {
 
         actingAsLeader.set(true);
         
-        broadcastToAll("SERVER_LEADERSHIP_CHANGE", null);
+        // Notify clients of leadership change
+        for (ClientHandler client : connectedClients) {
+            client.sendMessage("SERVER_LEADERSHIP_CHANGE");
+        }
         
         startServerToServerListener();
         start();
@@ -809,9 +812,31 @@ public class Server {
     
     // Helper method to deserialize objects (for drawing replication)
     private Object deserialize(String serializedStr) {
-        // This is a simplified placeholder. In production code,
-        // you would need a proper serialization/deserialization mechanism.
-        return null; // Replace with actual deserialization
+        try {
+            // Basic implementation for Message objects
+            // This is a simplified approach - in a production environment you might use
+            // a more robust serialization mechanism like JSON
+            if (serializedStr.contains("DRAW:") || serializedStr.contains("CLEAR:")) {
+                String[] parts = serializedStr.split(":", 2);
+                String type = parts[0];
+                String content = parts.length > 1 ? parts[1] : "";
+                String senderId = "SERVER";
+                
+                Message.MessageType messageType = null;
+                if (type.equals("DRAW")) {
+                    messageType = Message.MessageType.DRAW;
+                } else if (type.equals("CLEAR")) {
+                    messageType = Message.MessageType.CLEAR;
+                }
+                
+                if (messageType != null) {
+                    return new Message(messageType, content, senderId);
+                }
+            }
+        } catch (Exception e) {
+            logMessage("Error deserializing: " + e.getMessage());
+        }
+        return null;
     }
     
     /**
