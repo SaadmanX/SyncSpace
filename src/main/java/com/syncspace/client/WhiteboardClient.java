@@ -262,7 +262,7 @@ public class WhiteboardClient {
         // First, let's wait to allow leader election to complete (5 seconds)
         chatPanel.receiveMessage("Waiting for servers to complete leadership election...");
         try {
-            Thread.sleep(5000);  // 5 seconds delay for leader election
+            Thread.sleep(8000);  // 5 seconds delay for leader election
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
