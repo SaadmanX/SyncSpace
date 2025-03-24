@@ -40,8 +40,8 @@ public class Server { // comment
     // Server connection management
     private final List<ServerConnection> serverConnections = new CopyOnWriteArrayList<>();
     // Track followers
-    private final List<String> followerIps = new CopyOnWriteArrayList<>();
-    private final List<String> knownServers= new CopyOnWriteArrayList<>();
+    private final List<Inet4Address> followerIps = new CopyOnWriteArrayList<>();
+    private final List<Inet4Address> knownServers= new CopyOnWriteArrayList<>();
 
     // Server sockets
     private ServerSocket clientServerSocket;
@@ -64,7 +64,7 @@ public class Server { // comment
      * Constructor with leader IP.
      * @param leaderIp IP of leader server (null for leader mode)
      */
-    public Server(String leaderIp) {
+    public Server(Inet4Address leaderIp) {
         this.userManager = new UserManager();
         this.connectedClients = new CopyOnWriteArrayList<>();
         this.actingAsLeader.set(leaderIp == null);
@@ -75,12 +75,21 @@ public class Server { // comment
         this.schedulerThreadPool = Executors.newScheduledThreadPool(2);
 
         // Get server IP
-        String localIp;
+        Inet4Address localIp;
         try {
-            localIp = InetAddress.getLocalHost().getHostAddress();
+            localIp = (Inet4Address) Inet4Address.getLocalHost();
         } catch (UnknownHostException e) {
-            localIp = "127.0.0.1";
-            logMessage("ERROR: Could not determine server IP, using localhost: " + e.getMessage());
+            try {
+                localIp = (Inet4Address) Inet4Address.getLocalHost();
+                logMessage("ERROR: Could not determine server IP, using localhost: " + e.getMessage());
+            } catch (UnknownHostException u) {
+                logMessage("ERROR: Failed to get local host, using loopback address");
+                try {
+                    localIp = (Inet4Address) Inet4Address.getByName("127.0.0.1");
+                } catch (UnknownHostException ex) {
+                    throw new RuntimeException("Could not initialize server IP", ex);
+                }
+            }
         }
         this.serverIp = localIp;
         
@@ -152,7 +161,7 @@ public class Server { // comment
                     try {
                         logMessage("Waiting for follower connections...");
                         Socket followerSocket = serverSocket.accept();
-                        String followerIp = followerSocket.getInetAddress().getHostAddress();
+                        Inet4Address followerIp = (Inet4Address) Inet4Address.getByName(followerSocket.getInetAddress().getHostAddress());
                         logMessage("NEW FOLLOWER CONNECTED! IP: " + followerIp);
                         
                         // Create and register the connection
@@ -260,7 +269,7 @@ public class Server { // comment
         
         logMessage("Sending updated follower list to all clients: " + followerIps);
         
-        String followerList = String.join(" * ", followerIps);
+        String followerList = String.join(" * ", followerIps.toString());
         String messageContent = "SERVER_FOLLOWER_LIST:" + followerList;
         
         for (ClientHandler client : connectedClients) {
@@ -273,7 +282,7 @@ public class Server { // comment
         
         logMessage("Sending updated server list to all followers: " + knownServers);
         
-        String followerList = String.join(" * ", knownServers);
+        String followerList = String.join(" * ", knownServers.toString());
         String messageContent = "SERVER_FOLLOWER_LIST:" + followerList;
         
         for (ServerConnection follower : serverConnections) {
@@ -305,7 +314,7 @@ public class Server { // comment
         if (!isLeader()) return;
 
         // Create a list of all currently connected follower IPs
-        List<String> connectedFollowers = new ArrayList<>();
+        List<Inet4Address> connectedFollowers = new ArrayList<>();
         for (ServerConnection conn : serverConnections) {
             if (conn.getType() == ServerConnectionType.FOLLOWER) {
                 connectedFollowers.add(conn.getRemoteIp());
@@ -317,7 +326,7 @@ public class Server { // comment
             boolean listChanged = false;
             
             // Add any new followers
-            for (String ip : connectedFollowers) {
+            for (Inet4Address ip : connectedFollowers) {
                 if (!followerIps.contains(ip)) {
                     followerIps.add(ip);
                     listChanged = true;
@@ -659,12 +668,12 @@ public class Server { // comment
      */
     private class ServerConnection {
         private final Socket socket;
-        private final String remoteIp;
+        private final Inet4Address remoteIp;
         private final ServerConnectionType type;
         private ObjectOutputStream outputStream;
         private ObjectInputStream inputStream;
         
-        public ServerConnection(Socket socket, String remoteIp, ServerConnectionType type) {
+        public ServerConnection(Socket socket, Inet4Address remoteIp, ServerConnectionType type) {
             this.socket = socket;
             this.remoteIp = remoteIp;
             this.type = type;
@@ -850,7 +859,7 @@ public class Server { // comment
         /**
          * Gets the remote IP address.
          */
-        public String getRemoteIp() {
+        public Inet4Address getRemoteIp() {
             return remoteIp;
         }
         
