@@ -706,6 +706,7 @@ public class Server {
                     // This is a log message from the leader - print it directly to console
                     String log = stringMessage.substring(4);
                     System.out.println("FROM LEADER: " + log);
+                    logServerState();
                 } 
                 else if (stringMessage.startsWith("SERVER_FOLLOWER_LIST:")){
                         // Extract the follower list part
