@@ -716,6 +716,19 @@ public class Server {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
+        } else {
+            logMessage("Notifying leader of shutdown");
+            for (ServerConnection conn : new ArrayList<>(serverConnections)) {
+                if (conn.getType() == ServerConnectionType.LEADER) {
+                    conn.sendMessage("FOLLOWER_SHUTDOWN:" + serverIp);
+                }
+            }
+
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
         
         // Signal threads to stop
@@ -877,6 +890,7 @@ public class Server {
                     // Extract the follower list part
                     String followerListPart = stringMessage.substring("SERVER_FOLLOWER_LIST:".length());
                     updateFollowerList(followerListPart);
+                    sendFollowersToConnections();
                     logServerState();
                 }
                 else if (stringMessage.startsWith("DRAWING:")) {
@@ -886,6 +900,12 @@ public class Server {
                 else if (stringMessage.startsWith("TEXT")) {
                     // Handle text message - not implemented in this code
                 } 
+                else if (stringMessage.startsWith("FOLLOWER_SHUTDOWN:")) {
+                    String followerIp = stringMessage.substring("FOLLOWER_SHUTDOWN:".length());
+                    followerIps.remove(followerIp);
+                    sendFollowersToConnections();
+                    logServerState();
+                }
                 else if (stringMessage.equals("LEADER_SHUTDOWN")) {
                     logMessage("Leader notified of orderly shutdown, starting election");
                     if (type == ServerConnectionType.LEADER) {
