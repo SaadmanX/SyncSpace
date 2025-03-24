@@ -385,7 +385,7 @@ public class Server {
     public synchronized void startElection() {
         logMessage("========== STARTING ELECTION PROCESS ==========");
         
-        List<String> allServerIps = new ArrayList<>(followerIps);
+        List<String> allServerIps = new ArrayList<>(knownServers);
         allServerIps.add(serverIp);
         
         logMessage("Servers participating in election: " + allServerIps);
@@ -764,6 +764,7 @@ public class Server {
                 } else if (stringMessage.startsWith("SERVER_FOLLOWER_LIST:")){
                     String followerListpart = stringMessage.substring("SERVER_FOLLOWER_LIST:".length());
                     // OVER HERE BRUH
+                    updateFollowerList(followerListpart);
                 } else {
                     // Other string messages
                     logMessage("Received message: " + stringMessage);
@@ -772,6 +773,36 @@ public class Server {
                 logMessage("Received unknown message type: " + message.getClass().getName());
             }
         }
+
+        private void updateFollowerList(String followerListString) {
+            // Clear the current follower list
+            followerIps.clear();
+            
+            // Parse the new list (format: "ip1 * ip2 * ip3")
+            if (followerListString != null && !followerListString.isEmpty()) {
+                String[] ips = followerListString.split("\\s*\\*\\s*");
+                for (String ip : ips) {
+                    if (!ip.trim().isEmpty()) {
+                        followerIps.add(ip.trim());
+                        // Also add to known servers if not already there
+                        if (!knownServers.contains(ip.trim())) {
+                            knownServers.add(ip.trim());
+                        }
+                    }
+                }
+            }
+            
+            // Add the current server to known servers if not already there
+            String currentServer = socket.getInetAddress().getHostAddress();
+            if (!knownServers.contains(currentServer)) {
+                knownServers.add(currentServer);
+            }
+            
+            System.out.println("Updated follower server list: " + followerIps);
+            System.out.println("Known server list of followers: " + knownServers);
+    
+        }
+        
         
         /**
          * Sends a message to the remote server.
