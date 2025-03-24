@@ -778,7 +778,7 @@ public class Server {
         
         logMessage("Server shutdown complete");
     }
-
+        
     /**
      * Server connection types.
      */
@@ -946,7 +946,11 @@ public class Server {
                         outputStream.flush();
                     } catch (IOException e) {
                         logMessage("Error sending message: " + e.getMessage());
-                        close();
+                        try{
+                            close();
+                        } catch (Exception e2){
+                            logMessage("Cannot cloe:" + e.getMessage());
+                        }
                     }
                 }
             }
@@ -960,16 +964,22 @@ public class Server {
                 if (outputStream != null) {
                     outputStream.close();
                     outputStream = null;
+                    logMessage("Output stream closed");
                 }
                 if (inputStream != null) {
                     inputStream.close();
                     inputStream = null;
+                    logMessage("Input stream closed");
                 }
                 if (socket != null && !socket.isClosed()) {
                     socket.close();
+                    logMessage("Socket closed");
                 }
             } catch (IOException e) {
                 logMessage("Error closing connection resources: " + e.getMessage());
+            } catch (Exception e2){
+                logMessage("Error closing connection resources (E2): " + e2.getMessage());
+
             }
             
             serverConnections.remove(this);
