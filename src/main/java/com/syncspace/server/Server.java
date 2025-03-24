@@ -99,7 +99,7 @@ public class Server {
         }
         
         // Start ping scheduler and periodic log replication
-        // startPingScheduler();
+        startPingScheduler();
     }
     
     /**
