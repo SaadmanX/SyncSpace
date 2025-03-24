@@ -1,6 +1,7 @@
 package com.syncspace.server;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.InetAddress;
@@ -11,36 +12,48 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import com.syncspace.common.Message;
 
+/**
+ * Server implementation for SyncSpace application.
+ * Handles client connections, server-to-server communication,
+ * and implements leader-follower architecture for redundancy.
+ */
 public class Server {
+    // Network configuration
     private static final int PORT = 12345; // Client connection port
     private static final int SERVER_PORT = 12346; // Server-to-server communication port
     private static final int RECONNECT_DELAY_MS = 1000; // 1 second
     private static final int MAX_RECONNECT_ATTEMPTS = 3;
     
+    // Server state
     private final UserManager userManager;
-    private final List<ClientHandler> connectedClients;
+    private final List<ClientHandler> connectedClients = new CopyOnWriteArrayList<>();
     private final AtomicBoolean actingAsLeader = new AtomicBoolean(false);
-    private volatile String leaderIp;  // volatile ensures visibility across threads
+    private volatile String leaderIp;
     private final String serverIp;
     
-    // Thread pools for resource management
-    private final ExecutorService connectionThreadPool;
-    private final ScheduledExecutorService schedulerThreadPool;
+    // Thread management
+    private final ExecutorService taskExecutor;
+    private final ScheduledExecutorService scheduledTaskExecutor;
+    private Thread connectionReaderThread;
+    private Thread messageHandlerThread;
+    private volatile boolean running = true;
     
-    // Server connection management
+    // Connection management
     private final List<ServerConnection> serverConnections = new CopyOnWriteArrayList<>();
-    // Track followers
     private final List<String> followerIps = new CopyOnWriteArrayList<>();
-
+    private final BlockingQueue<ConnectionMessage> messageQueue = new LinkedBlockingQueue<>(1000);
+    
     // Server sockets
     private ServerSocket clientServerSocket;
     private ServerSocket serverServerSocket;
@@ -48,8 +61,21 @@ public class Server {
     private volatile boolean connectingToLeader = false;
     private ScheduledFuture<?> leaderConnectFuture = null;
 
-    // Add a list to store all drawing actions
+    // Drawing state
     private final List<Message> drawingHistory = new CopyOnWriteArrayList<>();
+    
+    /**
+     * Message container for the connection processing queue.
+     */
+    private static class ConnectionMessage {
+        final ServerConnection connection;
+        final Object message;
+        
+        ConnectionMessage(ServerConnection connection, Object message) {
+            this.connection = connection;
+            this.message = message;
+        }
+    }
 
     /**
      * Constructor for leader server.
@@ -64,23 +90,15 @@ public class Server {
      */
     public Server(String leaderIp) {
         this.userManager = new UserManager();
-        this.connectedClients = new CopyOnWriteArrayList<>();
         this.actingAsLeader.set(leaderIp == null);
         this.leaderIp = leaderIp;
         
         // Initialize thread pools
-        this.connectionThreadPool = Executors.newCachedThreadPool();
-        this.schedulerThreadPool = Executors.newScheduledThreadPool(1);
+        this.taskExecutor = Executors.newCachedThreadPool();
+        this.scheduledTaskExecutor = Executors.newScheduledThreadPool(1);
 
-        // Get server IP
-        String localIp;
-        try {
-            localIp = InetAddress.getLocalHost().getHostAddress();
-        } catch (UnknownHostException e) {
-            localIp = "127.0.0.1";
-            logMessage("ERROR: Could not determine server IP, using localhost: " + e.getMessage());
-        }
-        this.serverIp = localIp;
+        // Initialize server IP
+        this.serverIp = initializeServerIp();
         
         // Log startup information
         logMessage("======= STARTING SERVER AS " + (isLeader() ? "LEADER" : "FOLLOWER") + " =======");
@@ -91,15 +109,121 @@ public class Server {
             logMessage("Command line args: 0 arguments provided");
         }
         
+        // Start connection processing threads
+        startConnectionThreads();
+        
         // Initialize server based on role
         if (isLeader()) {
             startServerToServerListener();
+            startClientListener();
         } else {
             connectToLeader();
         }
+    }
+    
+    /**
+     * Gets the local server IP address.
+     * @return Local IP address string
+     */
+    private String initializeServerIp() {
+        try {
+            return InetAddress.getLocalHost().getHostAddress();
+        } catch (UnknownHostException e) {
+            logMessage("ERROR: Could not determine server IP, using localhost: " + e.getMessage());
+            return "127.0.0.1";
+        }
+    }
+    
+    /**
+     * Starts the reader and handler threads for connection processing.
+     */
+    private void startConnectionThreads() {
+        // Start reader thread
+        connectionReaderThread = new Thread(this::readConnectionsLoop);
+        connectionReaderThread.setName("ConnectionReader");
+        connectionReaderThread.start();
         
-        // Start ping scheduler and periodic log replication
-        // startPingScheduler();
+        // Start handler thread
+        messageHandlerThread = new Thread(this::processMessagesLoop);
+        messageHandlerThread.setName("MessageHandler");
+        messageHandlerThread.start();
+        
+        logMessage("Connection reader and message handler threads started");
+    }
+    
+    /**
+     * Main loop for reading data from connections.
+     * Polls all connections for available data and queues messages.
+     */
+    private void readConnectionsLoop() {
+        while (running && !Thread.currentThread().isInterrupted()) {
+            try {
+                // Poll each connection for available data
+                for (ServerConnection conn : new ArrayList<>(serverConnections)) {
+                    try {
+                        if (conn.socket.isClosed()) {
+                            conn.close();
+                            continue;
+                        }
+                        
+                        InputStream in = conn.socket.getInputStream();
+                        if (in.available() > 0) {
+                            // Only attempt to read if data is available
+                            ObjectInputStream ois = conn.getInputStream();
+                            Object message = ois.readObject();
+                            
+                            // Queue the message for processing
+                            boolean offered = messageQueue.offer(
+                                new ConnectionMessage(conn, message),
+                                100, TimeUnit.MILLISECONDS);
+                                
+                            if (!offered) {
+                                logMessage("Warning: Message queue full, dropping message");
+                            }
+                        }
+                    } catch (IOException | ClassNotFoundException e) {
+                        logMessage("Error reading from connection: " + e.getMessage());
+                        conn.close();
+                    }
+                }
+                
+                // Small sleep to prevent CPU spinning
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            } catch (Exception e) {
+                logMessage("Error in connection reader: " + e.getMessage());
+            }
+        }
+        logMessage("Connection reader thread terminated");
+    }
+    
+    /**
+     * Main loop for processing queued messages.
+     * Dequeues and handles messages from the message queue.
+     */
+    private void processMessagesLoop() {
+        while (running && !Thread.currentThread().isInterrupted()) {
+            try {
+                // Block until a message is available or timeout
+                ConnectionMessage msg = messageQueue.poll(500, TimeUnit.MILLISECONDS);
+                if (msg != null) {
+                    // Process the message
+                    try {
+                        msg.connection.handleMessage(msg.message);
+                    } catch (Exception e) {
+                        logMessage("Error handling message: " + e.getMessage());
+                    }
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            } catch (Exception e) {
+                logMessage("Error in message handler: " + e.getMessage());
+            }
+        }
+        logMessage("Message handler thread terminated");
     }
     
     /**
@@ -136,12 +260,12 @@ public class Server {
     private void startServerToServerListener() {
         if (!isLeader()) return;
         
-        connectionThreadPool.execute(() -> {
+        taskExecutor.execute(() -> {
             try (ServerSocket serverSocket = new ServerSocket(SERVER_PORT)) {
                 serverServerSocket = serverSocket;
                 logMessage("Leader server is listening for followers on port " + SERVER_PORT);
                 
-                while (!Thread.currentThread().isInterrupted()) {
+                while (!Thread.currentThread().isInterrupted() && !serverSocket.isClosed()) {
                     try {
                         logMessage("Waiting for follower connections...");
                         Socket followerSocket = serverSocket.accept();
@@ -155,9 +279,8 @@ public class Server {
                         followerIps.add(followerIp);
                         sendFollowersToConnections();
                         logServerState();
-                        // pingFollowers();
 
-                        // Start connection handler
+                        // Initialize the connection
                         connection.start();
                     } catch (IOException e) {
                         if (!serverSocket.isClosed()) {
@@ -187,7 +310,7 @@ public class Server {
         followerIps.clear();
         
         // Schedule a repeated connection attempt
-        leaderConnectFuture = schedulerThreadPool.scheduleWithFixedDelay(new Runnable() {
+        leaderConnectFuture = scheduledTaskExecutor.scheduleWithFixedDelay(new Runnable() {
             private int attemptCount = 0;
             
             @Override
@@ -235,6 +358,9 @@ public class Server {
         }, 0, RECONNECT_DELAY_MS, TimeUnit.MILLISECONDS);
     }
     
+    /**
+     * Cancels the leader connection task.
+     */
     private void cancelLeaderConnectTask() {
         synchronized (connectLock) {
             if (leaderConnectFuture != null && !leaderConnectFuture.isCancelled()) {
@@ -246,7 +372,38 @@ public class Server {
     }
     
     /**
-     * Sends the follower list to all clients.
+     * Starts the client listener server.
+     */
+    private void startClientListener() {
+        taskExecutor.execute(() -> {
+            try (ServerSocket serverSocket = new ServerSocket(PORT)) {
+                clientServerSocket = serverSocket;
+                logMessage("Server is listening for clients on port " + PORT);
+                
+                while (!Thread.currentThread().isInterrupted() && !serverSocket.isClosed()) {
+                    try {
+                        Socket socket = serverSocket.accept();
+                        logMessage("New client connected");
+                        
+                        ClientHandler clientHandler = new ClientHandler(socket, userManager, this);
+                        connectedClients.add(clientHandler);
+                        clientHandler.start();
+                    } catch (IOException e) {
+                        if (!serverSocket.isClosed()) {
+                            logMessage("ERROR accepting client connection: " + e.getMessage());
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            } catch (IOException e) {
+                logMessage("ERROR starting the client server: " + e.getMessage());
+            }
+        });
+    }
+    
+    /**
+     * Sends the follower list to all connections.
      */
     public void sendFollowersToConnections() {
         if (!isLeader()) return;
@@ -264,89 +421,6 @@ public class Server {
             conn.sendMessage(messageContent);
         }
     }
-    
-    /**
-     * Starts the ping scheduler.
-     */
-    // private void startPingScheduler() {
-    //     logMessage("Starting ping scheduler - will ping every 5 seconds");
-    //     schedulerThreadPool.scheduleAtFixedRate(() -> {
-    //         if (isLeader()) {
-    //             pingFollowers();
-    //         } else {
-    //             pingLeader();
-    //         }
-    //     }, 0, 5, TimeUnit.SECONDS);
-
-    //     schedulerThreadPool.scheduleAtFixedRate(this::logServerState, 
-    //         1, 10, TimeUnit.SECONDS);
-    // }
-    
-    /**
-     * Sends ping messages to all followers (leader mode).
-     */
-    // private void pingFollowers() {
-    //     if (!isLeader()) return;
-
-    //     // Create a list of all currently connected follower IPs
-    //     List<String> connectedFollowers = new ArrayList<>();
-    //     for (ServerConnection conn : serverConnections) {
-    //         if (conn.getType() == ServerConnectionType.FOLLOWER) {
-    //             connectedFollowers.add(conn.getRemoteIp());
-    //         }
-    //     }
-        
-    //     // Only update follower list if we have at least one connection
-    //     if (!connectedFollowers.isEmpty()) {
-    //         boolean listChanged = false;
-            
-    //         // Add any new followers
-    //         for (String ip : connectedFollowers) {
-    //             if (!followerIps.contains(ip)) {
-    //                 followerIps.add(ip);
-    //                 listChanged = true;
-    //                 logMessage("Added new follower to list: " + ip);
-    //             }
-    //         }
-            
-    //         // Remove any disconnected followers
-    //         for (int i = followerIps.size() - 1; i >= 0; i--) {
-    //             String ip = followerIps.get(i);
-    //             if (!connectedFollowers.contains(ip) && !ip.equals(serverIp)) {
-    //                 followerIps.remove(i);
-    //                 listChanged = true;
-    //                 logMessage("Removed disconnected follower from list: " + ip);
-    //             }
-    //         }
-            
-    //         // If the list changed, send updates to clients
-    //         if (listChanged) {
-    //             sendFollowersToConnections();
-    //         }
-    //     }
-        
-    //     // Rest of the method remains the same...
-    // }
-    
-    /**
-     * Sends a ping message to the leader (follower mode).
-     */
-    // private void pingLeader() {
-    //     if (isLeader()) return;
-
-    //     ServerConnection leaderConnection = getLeaderConnection();
-        
-    //     if (leaderConnection == null) {
-    //         logMessage("Not connected to leader, cannot send ping");
-    //         connectToLeader();
-    //         return;
-    //     }
-        
-    //     logMessage("Sending ping to leader at " + leaderConnection.getRemoteIp() + 
-    //             " with our IP: " + serverIp);
-    //     leaderConnection.sendMessage("PING:" + serverIp);
-    //     logMessage("Ping sent successfully to leader");
-    // }
     
     /**
      * Retrieves the leader connection (follower mode).
@@ -427,7 +501,7 @@ public class Server {
         }
         
         startServerToServerListener();
-        start();
+        startClientListener();
         
         logMessage("Successfully transitioned to leader mode");
     }
@@ -451,6 +525,7 @@ public class Server {
         
         state.append("Client connections: ").append(connectedClients.size()).append("\n");
         state.append("Server connections: ").append(serverConnections.size()).append("\n");
+        state.append("Message queue size: ").append(messageQueue.size()).append("\n");
         
         state.append("Follower IPs (").append(followerIps.size()).append("):");
         if (followerIps.isEmpty()) {
@@ -466,37 +541,6 @@ public class Server {
         logMessage(state.toString());
     }
 
-    /**
-     * Starts the client server.
-     */
-    public void start() {
-        connectionThreadPool.execute(() -> {
-            try (ServerSocket serverSocket = new ServerSocket(PORT)) {
-                clientServerSocket = serverSocket;
-                logMessage("Server is listening for clients on port " + PORT);
-                
-                while (!Thread.currentThread().isInterrupted()) {
-                    try {
-                        Socket socket = serverSocket.accept();
-                        logMessage("New client connected");
-                        
-                        ClientHandler clientHandler = new ClientHandler(socket, userManager, this);
-                        connectedClients.add(clientHandler);
-                        clientHandler.start();
-                    } catch (IOException e) {
-                        if (!serverSocket.isClosed()) {
-                            logMessage("ERROR accepting client connection: " + e.getMessage());
-                        } else {
-                            break;
-                        }
-                    }
-                }
-            } catch (IOException e) {
-                logMessage("ERROR starting the server: " + e.getMessage());
-            }
-        });
-    }
-    
     /**
      * Removes a client handler from the list.
      */
@@ -595,11 +639,35 @@ public class Server {
     public void shutdown() {
         logMessage("Shutting down server...");
         
+        // Signal threads to stop
+        running = false;
+        
+        // Interrupt and wait for threads to finish
+        if (connectionReaderThread != null) {
+            connectionReaderThread.interrupt();
+            try {
+                connectionReaderThread.join(2000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        
+        if (messageHandlerThread != null) {
+            messageHandlerThread.interrupt();
+            try {
+                messageHandlerThread.join(2000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        
+        // Close all connections
         for (ServerConnection conn : new ArrayList<>(serverConnections)) {
             conn.close();
         }
         serverConnections.clear();
         
+        // Close server sockets
         try {
             if (clientServerSocket != null && !clientServerSocket.isClosed()) {
                 clientServerSocket.close();
@@ -616,8 +684,9 @@ public class Server {
             logMessage("Error closing server socket: " + e.getMessage());
         }
         
-        schedulerThreadPool.shutdownNow();
-        connectionThreadPool.shutdownNow();
+        // Shutdown thread pools
+        scheduledTaskExecutor.shutdownNow();
+        taskExecutor.shutdownNow();
         
         logMessage("Server shutdown complete");
     }
@@ -640,6 +709,13 @@ public class Server {
         private ObjectOutputStream outputStream;
         private ObjectInputStream inputStream;
         
+        /**
+         * Creates a new server connection.
+         * 
+         * @param socket The socket for the connection
+         * @param remoteIp The remote IP address
+         * @param type The connection type (LEADER or FOLLOWER)
+         */
         public ServerConnection(Socket socket, String remoteIp, ServerConnectionType type) {
             this.socket = socket;
             this.remoteIp = remoteIp;
@@ -647,38 +723,26 @@ public class Server {
         }
         
         /**
-         * Starts the connection handler.
+         * Initializes the connection streams.
+         * No thread is created - reading is handled by the reader thread.
          */
         public void start() {
-            connectionThreadPool.execute(() -> {
-                try {
-                    outputStream = new ObjectOutputStream(socket.getOutputStream());
-                    outputStream.flush();
-                    inputStream = new ObjectInputStream(socket.getInputStream());
-                    
-                    logMessage("Communication streams established with " + type.name().toLowerCase() + ": " + remoteIp);
-                    
-                    while (!Thread.currentThread().isInterrupted() && !socket.isClosed()) {
-                        try {
-                            Object message = inputStream.readObject();
-                            handleMessage(message);
-                        } catch (ClassNotFoundException e) {
-                            logMessage("ERROR: Received unknown object type: " + e.getMessage());
-                        }
-                    }
-                } catch (IOException e) {
-                    String role = type == ServerConnectionType.LEADER ? "leader" : "follower";
-                    logMessage("Connection to " + role + " lost: " + e.getMessage());
-                    
-                    if (type == ServerConnectionType.LEADER && !isLeader()) {
-                        connectToLeader();
-                    }
-                } finally {
-                    close();
-                }
-            });
+            try {
+                outputStream = new ObjectOutputStream(socket.getOutputStream());
+                outputStream.flush();
+                inputStream = new ObjectInputStream(socket.getInputStream());
+                
+                logMessage("Communication streams established with " + type.name().toLowerCase() + ": " + remoteIp);
+            } catch (IOException e) {
+                String role = type == ServerConnectionType.LEADER ? "leader" : "follower";
+                logMessage("Error setting up connection to " + role + ": " + e.getMessage());
+                close();
+            }
         }
 
+        /**
+         * Updates the follower list from the leader's message.
+         */
         private void updateFollowerList(String followerListString) {
             // Clear the current follower list
             followerIps.clear();
@@ -695,7 +759,6 @@ public class Server {
             logMessage("Updated follower list from leader: " + followerIps);
         }
     
-        
         /**
          * Handles incoming messages.
          */
@@ -708,62 +771,18 @@ public class Server {
                     System.out.println("FROM LEADER: " + log);
                     logServerState();
                 } 
-                else if (stringMessage.startsWith("SERVER_FOLLOWER_LIST:")){
-                        // Extract the follower list part
-                        String followerListPart = stringMessage.substring("SERVER_FOLLOWER_LIST:".length());
-                        updateFollowerList(followerListPart);
-                        logServerState();
+                else if (stringMessage.startsWith("SERVER_FOLLOWER_LIST:")) {
+                    // Extract the follower list part
+                    String followerListPart = stringMessage.substring("SERVER_FOLLOWER_LIST:".length());
+                    updateFollowerList(followerListPart);
+                    logServerState();
                 }
-                // else if (stringMessage.startsWith("PING:")) {
-                //     // This is a ping message
-                //     String typeName = type == ServerConnectionType.LEADER ? "leader" : "follower";
-                //     String pingMessage = stringMessage.substring(5);
-                //     logMessage("PING RECEIVED from " + typeName + " [" + remoteIp + "]: " + pingMessage);
-                    
-                //     // If leader, update follower list based on ping message
-                //     if (pingMessage.contains("*")) {
-                //         followerIps.clear();
-                //         String[] ips = pingMessage.split("\\s*\\*\\s*");
-                //         for (String ip : ips) {
-                //             if (!ip.trim().isEmpty()) {
-                //                 followerIps.add(ip.trim());
-                //             }
-                //         }
-                //         logMessage("Updated follower list from leader: " + followerIps);
-                //     }
-                // }
                 else if (stringMessage.startsWith("DRAWING:")) {
                     // Handle drawing replication from leader
-                    try {
-                        String drawingPart = stringMessage.substring(8);
-                        Object drawObj = deserialize(drawingPart);
-                        if (drawObj instanceof Message) {
-                            Message drawMsg = (Message) drawObj;
-                            if (drawMsg.getType() == Message.MessageType.DRAW || 
-                                drawMsg.getType() == Message.MessageType.CLEAR) {
-                                
-                                // Add to local drawing history if not already there
-                                if (!drawingHistory.contains(drawMsg)) {
-                                    drawingHistory.add(drawMsg);
-                                }
-                                
-                                // If it's a clear message, remove all drawing actions
-                                if (drawMsg.getType() == Message.MessageType.CLEAR) {
-                                    drawingHistory.removeIf(m -> m.getType() == Message.MessageType.DRAW);
-                                }
-                                
-                                // Forward to connected clients
-                                for (ClientHandler client : connectedClients) {
-                                    client.sendMessage(drawMsg);
-                                }
-                            }
-                        }
-                    } catch (Exception e) {
-                        logMessage("Error processing drawing message: " + e.getMessage());
-                    }
+                    handleDrawingMessage(stringMessage);
                 }
                 else if (stringMessage.startsWith("TEXT")) {
-                    
+                    // Handle text message - not implemented in this code
                 } 
                 else {
                     // Other string messages
@@ -771,6 +790,39 @@ public class Server {
                 }
             } else {
                 logMessage("Received unknown message type: " + message.getClass().getName());
+            }
+        }
+        
+        /**
+         * Handles drawing replication messages from the leader.
+         */
+        private void handleDrawingMessage(String stringMessage) {
+            try {
+                String drawingPart = stringMessage.substring(8);
+                Object drawObj = deserializeDrawingMessage(drawingPart);
+                if (drawObj instanceof Message) {
+                    Message drawMsg = (Message) drawObj;
+                    if (drawMsg.getType() == Message.MessageType.DRAW || 
+                        drawMsg.getType() == Message.MessageType.CLEAR) {
+                        
+                        // Add to local drawing history if not already there
+                        if (!drawingHistory.contains(drawMsg)) {
+                            drawingHistory.add(drawMsg);
+                        }
+                        
+                        // If it's a clear message, remove all drawing actions
+                        if (drawMsg.getType() == Message.MessageType.CLEAR) {
+                            drawingHistory.removeIf(m -> m.getType() == Message.MessageType.DRAW);
+                        }
+                        
+                        // Forward to connected clients
+                        for (ClientHandler client : connectedClients) {
+                            client.sendMessage(drawMsg);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                logMessage("Error processing drawing message: " + e.getMessage());
             }
         }
         
@@ -784,7 +836,8 @@ public class Server {
                         outputStream.writeObject(message);
                         outputStream.flush();
                     } catch (IOException e) {
-                        e.printStackTrace();
+                        logMessage("Error sending message: " + e.getMessage());
+                        close();
                     }
                 }
             }
@@ -815,7 +868,6 @@ public class Server {
             if (isLeader() && type == ServerConnectionType.FOLLOWER) {
                 sendFollowersToConnections();
                 logServerState();
-                // pingFollowers();
             }
         }
         
@@ -834,6 +886,13 @@ public class Server {
         }
         
         /**
+         * Gets the input stream.
+         */
+        public ObjectInputStream getInputStream() {
+            return inputStream;
+        }
+        
+        /**
          * Gets the output stream.
          */
         public ObjectOutputStream getOutputStream() {
@@ -841,12 +900,12 @@ public class Server {
         }
     }
     
-    // Helper method to deserialize objects (for drawing replication)
-    private Object deserialize(String serializedStr) {
+    /**
+     * Helper method to deserialize drawing messages.
+     */
+    private Object deserializeDrawingMessage(String serializedStr) {
         try {
             // Basic implementation for Message objects
-            // This is a simplified approach - in a production environment you might use
-            // a more robust serialization mechanism like JSON
             if (serializedStr.contains("DRAW:") || serializedStr.contains("CLEAR:")) {
                 String[] parts = serializedStr.split(":", 2);
                 String type = parts[0];
@@ -871,7 +930,7 @@ public class Server {
     }
     
     /**
-     * Main method. this will start either a leader or a follower
+     * Main method. This will start either a leader or a follower.
      */
     public static void main(String[] args) {
         Server server;
@@ -879,7 +938,6 @@ public class Server {
             server = new Server(args[0]);
         } else {
             server = new Server();
-            server.start();
         }
         Runtime.getRuntime().addShutdownHook(new Thread(server::shutdown));
     }
