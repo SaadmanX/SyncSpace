@@ -712,6 +712,7 @@ public class Server {
                         // Extract the follower list part
                         String followerListPart = stringMessage.substring("SERVER_FOLLOWER_LIST:".length());
                         updateFollowerList(followerListPart);
+                        logServerState();
                 }
                 // else if (stringMessage.startsWith("PING:")) {
                 //     // This is a ping message
