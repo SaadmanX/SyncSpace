@@ -70,7 +70,7 @@ public class Server {
         
         // Initialize thread pools
         this.connectionThreadPool = Executors.newCachedThreadPool();
-        this.schedulerThreadPool = Executors.newScheduledThreadPool(2);
+        this.schedulerThreadPool = Executors.newScheduledThreadPool(1);
 
         // Get server IP
         String localIp;
@@ -184,7 +184,7 @@ public class Server {
             connectingToLeader = true;
         }
         
-        // followerIps.clear();
+        followerIps.clear();
         
         // Schedule a repeated connection attempt
         leaderConnectFuture = schedulerThreadPool.scheduleWithFixedDelay(new Runnable() {
@@ -242,6 +242,7 @@ public class Server {
             }
             connectingToLeader = false;
         }
+        logServerState();
     }
     
     /**
