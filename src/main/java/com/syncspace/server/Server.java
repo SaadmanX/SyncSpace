@@ -3,6 +3,7 @@ package com.syncspace.server;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -20,7 +21,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import com.syncspace.common.Message;
 
-public class Server {
+public class Server { // comment
     private static final int PORT = 12345; // Client connection port
     private static final int SERVER_PORT = 12346; // Server-to-server communication port
     private static final int RECONNECT_DELAY_MS = 5000; // 5 seconds
@@ -29,8 +30,8 @@ public class Server {
     private final UserManager userManager;
     private final List<ClientHandler> connectedClients;
     private final AtomicBoolean actingAsLeader = new AtomicBoolean(false);
-    private volatile String leaderIp;  // volatile ensures visibility across threads
-    private final String serverIp;
+    private volatile Inet4Address leaderIp;  // volatile ensures visibility across threads
+    private final Inet4Address serverIp;
     
     // Thread pools for resource management
     private final ExecutorService connectionThreadPool;
@@ -391,7 +392,7 @@ public class Server {
         logMessage("Servers participating in election: " + allServerIps);
         
         String highestIp = "";
-        for (String ip : allServerIps) {
+        for (IP ip : allServerIps) {
             if (ip.compareTo(highestIp) > 0) {
                 highestIp = ip;
             }
