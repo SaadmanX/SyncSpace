@@ -60,6 +60,11 @@ public class Server {
     private final Object connectLock = new Object();
     private volatile boolean connectingToLeader = false;
     private ScheduledFuture<?> leaderConnectFuture = null;
+    private ScheduledFuture<?> leaderHeartbeatFuture = null;
+    private static final int HEARTBEAT_INTERVAL_MS = 2000; // 2 seconds
+    private static final int HEARTBEAT_TIMEOUT_MS = 6000; // 6 seconds
+    private volatile long lastLeaderHeartbeat = 0;
+
 
     // Drawing state
     private final List<Message> drawingHistory = new CopyOnWriteArrayList<>();
@@ -260,6 +265,55 @@ public class Server {
             }
         }
     }
+
+    /**
+     * Starts heartbeat monitoring of leader
+     */
+    private void startLeaderHeartbeatMonitor() {
+        if (isLeader()) return;
+        
+        lastLeaderHeartbeat = System.currentTimeMillis();
+        
+        leaderHeartbeatFuture = scheduledTaskExecutor.scheduleAtFixedRate(() -> {
+            if (isLeader()) {
+                // Cancel if we've become leader
+                cancelHeartbeatMonitor();
+                return;
+            }
+            
+            // Check if leader connection exists
+            ServerConnection leaderConn = getLeaderConnection();
+            if (leaderConn == null) {
+                logMessage("Leader connection lost, starting election");
+                cancelHeartbeatMonitor();
+                startElection();
+                return;
+            }
+            
+            // Send heartbeat to leader
+            leaderConn.sendMessage("HEARTBEAT");
+            
+            // Check if we've received a response in the timeout period
+            long now = System.currentTimeMillis();
+            if (now - lastLeaderHeartbeat > HEARTBEAT_TIMEOUT_MS) {
+                logMessage("Leader heartbeat timeout, starting election");
+                cancelHeartbeatMonitor();
+                leaderConn.close(); // Force close the connection
+                startElection();
+            }
+        }, HEARTBEAT_INTERVAL_MS, HEARTBEAT_INTERVAL_MS, TimeUnit.MILLISECONDS);
+    }
+
+    /**
+     * Cancels the heartbeat monitor
+     */
+    private void cancelHeartbeatMonitor() {
+        if (leaderHeartbeatFuture != null && !leaderHeartbeatFuture.isCancelled()) {
+            leaderHeartbeatFuture.cancel(false);
+            leaderHeartbeatFuture = null;
+        }
+    }
+
     
     /**
      * Starts the server-to-server listener (leader mode).
@@ -351,6 +405,8 @@ public class Server {
                     
                     // Connection succeeded, cancel further attempts.
                     cancelLeaderConnectTask();
+                    startLeaderHeartbeatMonitor();
+
                 } catch (IOException e) {
                     attemptCount++;
                     logMessage("ERROR connecting to leader: " + e.getMessage());
@@ -646,8 +702,33 @@ public class Server {
     public void shutdown() {
         logMessage("Shutting down server...");
         
+        // If leader, notify followers before shutting down
+        if (isLeader()) {
+            logMessage("Notifying followers of shutdown");
+            for (ServerConnection conn : new ArrayList<>(serverConnections)) {
+                if (conn.getType() == ServerConnectionType.FOLLOWER) {
+                    conn.sendMessage("LEADER_SHUTDOWN");
+                }
+            }
+            // Give followers time to process the shutdown message
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        
         // Signal threads to stop
         running = false;
+        
+        // Cancel any scheduled tasks
+        if (leaderConnectFuture != null) {
+            leaderConnectFuture.cancel(true);
+        }
+        
+        if (leaderHeartbeatFuture != null) {
+            leaderHeartbeatFuture.cancel(true);
+        }
         
         // Interrupt and wait for threads to finish
         if (connectionReaderThread != null) {
@@ -697,7 +778,7 @@ public class Server {
         
         logMessage("Server shutdown complete");
     }
-    
+        
     /**
      * Server connection types.
      */
@@ -772,7 +853,21 @@ public class Server {
         private void handleMessage(Object message) {
             if (message instanceof String) {
                 String stringMessage = (String) message;
-                if (stringMessage.startsWith("LOG:")) {
+                if (stringMessage.equals("HEARTBEAT")) {
+                    if (type == ServerConnectionType.LEADER) {
+                        // Follower received heartbeat from leader
+                        lastLeaderHeartbeat = System.currentTimeMillis();
+                        sendMessage("HEARTBEAT_ACK");
+                    } else if (type == ServerConnectionType.FOLLOWER) {
+                        // Leader received heartbeat from follower
+                        // Just acknowledge
+                        sendMessage("HEARTBEAT_ACK");
+                    }
+                } else if (stringMessage.equals("HEARTBEAT_ACK")) {
+                    // Record heartbeat response
+                    lastLeaderHeartbeat = System.currentTimeMillis();
+                }
+                else if (stringMessage.startsWith("LOG:")) {
                     // This is a log message from the leader - print it directly to console
                     String log = stringMessage.substring(4);
                     System.out.println("FROM LEADER: " + log);
@@ -791,6 +886,13 @@ public class Server {
                 else if (stringMessage.startsWith("TEXT")) {
                     // Handle text message - not implemented in this code
                 } 
+                else if (stringMessage.equals("LEADER_SHUTDOWN")) {
+                    logMessage("Leader notified of orderly shutdown, starting election");
+                    if (type == ServerConnectionType.LEADER) {
+                        close();
+                        startElection();
+                    }
+                }
                 else {
                     // Other string messages
                     logMessage("Received message: " + stringMessage);
