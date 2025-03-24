@@ -40,6 +40,7 @@ public class Server {
     private final List<ServerConnection> serverConnections = new CopyOnWriteArrayList<>();
     // Track followers
     private final List<String> followerIps = new CopyOnWriteArrayList<>();
+    private final List<String> knownServers= new CopyOnWriteArrayList<>();
 
     // Server sockets
     private ServerSocket clientServerSocket;
@@ -158,7 +159,9 @@ public class Server {
                             followerSocket, followerIp, ServerConnectionType.FOLLOWER);
                         serverConnections.add(connection);
                         followerIps.add(followerIp);
+                        knownServers.add(followerIp);
                         sendFollowersToClients();
+                        sendServersToFollowers();
                         pingFollowers();
 
                         // Start connection handler
@@ -261,6 +264,19 @@ public class Server {
         
         for (ClientHandler client : connectedClients) {
             client.sendMessage(messageContent);
+        }
+    }
+    // DOING THIS RIGHT NOW
+    public void sendServersToFollowers(){
+        if (!isLeader()) return;
+        
+        logMessage("Sending updated server list to all followers: " + knownServers);
+        
+        String followerList = String.join(" * ", knownServers);
+        String messageContent = "SERVER_FOLLOWER_LIST:" + followerList;
+        
+        for (ServerConnection follower : serverConnections) {
+            follower.sendMessage(messageContent);
         }
     }
     
