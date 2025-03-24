@@ -72,7 +72,6 @@ public class Server {
         this.connectionThreadPool = Executors.newCachedThreadPool();
         this.schedulerThreadPool = Executors.newScheduledThreadPool(2);
 
-        
         // Get server IP
         String localIp;
         try {
@@ -100,7 +99,7 @@ public class Server {
         }
         
         // Start ping scheduler and periodic log replication
-        startPingScheduler();
+        // startPingScheduler();
     }
     
     /**
