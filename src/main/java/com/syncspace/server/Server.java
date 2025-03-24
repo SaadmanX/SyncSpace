@@ -161,15 +161,22 @@ public class Server {
                 // Poll each connection for available data
                 for (ServerConnection conn : new ArrayList<>(serverConnections)) {
                     try {
-                        if (conn.socket.isClosed()) {
+                        // First check if socket is closed or connection is invalid
+                        if (conn.socket == null || conn.socket.isClosed()) {
                             conn.close();
                             continue;
                         }
                         
+                        // Get input stream with null check
+                        ObjectInputStream ois = conn.getInputStream();
+                        if (ois == null) {
+                            // Skip this connection if stream isn't ready
+                            continue;
+                        }
+                        
+                        // Check for available data before reading
                         InputStream in = conn.socket.getInputStream();
                         if (in.available() > 0) {
-                            // Only attempt to read if data is available
-                            ObjectInputStream ois = conn.getInputStream();
                             Object message = ois.readObject();
                             
                             // Queue the message for processing
@@ -198,7 +205,7 @@ public class Server {
         }
         logMessage("Connection reader thread terminated");
     }
-    
+        
     /**
      * Main loop for processing queued messages.
      * Dequeues and handles messages from the message queue.
@@ -726,7 +733,7 @@ public class Server {
          * Initializes the connection streams.
          * No thread is created - reading is handled by the reader thread.
          */
-        public void start() {
+        public synchronized void start() {
             try {
                 outputStream = new ObjectOutputStream(socket.getOutputStream());
                 outputStream.flush();
@@ -739,7 +746,7 @@ public class Server {
                 close();
             }
         }
-
+        
         /**
          * Updates the follower list from the leader's message.
          */
@@ -757,7 +764,7 @@ public class Server {
                 }
             }
             logMessage("Updated follower list from leader: " + followerIps);
-        }
+        }        
     
         /**
          * Handles incoming messages.
@@ -846,13 +853,15 @@ public class Server {
         /**
          * Closes the connection and cleans up resources.
          */
-        public void close() {
+        public synchronized void close() {
             try {
                 if (outputStream != null) {
                     outputStream.close();
+                    outputStream = null;
                 }
                 if (inputStream != null) {
                     inputStream.close();
+                    inputStream = null;
                 }
                 if (socket != null && !socket.isClosed()) {
                     socket.close();
@@ -870,7 +879,7 @@ public class Server {
                 logServerState();
             }
         }
-        
+                
         /**
          * Gets the remote IP address.
          */
@@ -888,10 +897,10 @@ public class Server {
         /**
          * Gets the input stream.
          */
-        public ObjectInputStream getInputStream() {
+        public synchronized ObjectInputStream getInputStream() {
             return inputStream;
         }
-        
+                
         /**
          * Gets the output stream.
          */
