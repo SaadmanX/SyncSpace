@@ -705,7 +705,7 @@ public class Server {
                     logMessage("PING RECEIVED from " + typeName + " [" + remoteIp + "]: " + pingMessage);
                     
                     // If leader, update follower list based on ping message
-                    if (type == ServerConnectionType.LEADER && pingMessage.contains("*")) {
+                    if (pingMessage.contains("*")) {
                         followerIps.clear();
                         String[] ips = pingMessage.split("\\s*\\*\\s*");
                         for (String ip : ips) {
