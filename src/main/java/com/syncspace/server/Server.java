@@ -276,7 +276,7 @@ public class Server {
         String messageContent = "SERVER_FOLLOWER_LIST:" + followerList;
         
         for (ServerConnection follower : serverConnections) {
-            follower.sendMessage(messageContent);
+            follower.handleMessage(messageContent);
         }
     }
     
@@ -761,6 +761,9 @@ public class Server {
                     } catch (Exception e) {
                         logMessage("Error processing drawing message: " + e.getMessage());
                     }
+                } else if (stringMessage.startsWith("SERVER_FOLLOWER_LIST:")){
+                    String followerListpart = stringMessage.substring("SERVER_FOLLOWER_LIST:".length());
+                    // OVER HERE BRUH
                 } else {
                     // Other string messages
                     logMessage("Received message: " + stringMessage);
