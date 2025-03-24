@@ -778,7 +778,7 @@ public class Server {
         
         logMessage("Server shutdown complete");
     }
-        
+
     /**
      * Server connection types.
      */
