@@ -903,12 +903,7 @@ public class Server {
                 else if (stringMessage.startsWith("FOLLOWER_SHUTDOWN:")) {
                     String followerIp = stringMessage.substring("FOLLOWER_SHUTDOWN:".length());
                     followerIps.remove(followerIp);
-                    try {
-                        if (socket != null && !socket.isClosed())
-                        socket.close();
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
+                    close();
                     sendFollowersToConnections();
                     logServerState();
                 }
