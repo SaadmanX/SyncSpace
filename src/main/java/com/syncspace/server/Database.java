@@ -6,39 +6,57 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class Database {
     private static final String DATABASE_FILE = "/Users/smitster1403/Desktop/559/database_log.txt";
     private static final int PORT = 1500;
+    private static final AtomicBoolean running = new AtomicBoolean(true);
+    private static ServerSocket serverSocket;
     
     public static void main(String[] args) {
         System.out.println("Database server starting on port " + PORT);
         
-        // Create a thread pool for handling multiple client connections
-        ExecutorService threadPool = Executors.newCachedThreadPool();
+        // Set up a shutdown hook to handle CTRL+C gracefully
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            System.out.println("Shutdown requested. Closing server socket...");
+            running.set(false);
+            try {
+                if (serverSocket != null && !serverSocket.isClosed()) {
+                    serverSocket.close();
+                }
+            } catch (IOException e) {
+                System.err.println("Error during shutdown: " + e.getMessage());
+            }
+        }));
         
-        try (ServerSocket serverSocket = new ServerSocket(PORT)) {
+        try {
+            serverSocket = new ServerSocket(PORT);
             System.out.println("Database server is running and waiting for connections...");
             
-            // Continuously accept connections
-            while (true) {
+            // Single-threaded accept loop
+            while (running.get()) {
                 try {
-                    // Wait for a new connection
+                    // Set socket to accept with timeout to check running state periodically
+                    serverSocket.setSoTimeout(1000);
                     Socket clientSocket = serverSocket.accept();
                     System.out.println("New connection from: " + clientSocket.getInetAddress().getHostAddress());
                     
-                    // Handle this connection in a separate thread
-                    threadPool.submit(() -> handleClientConnection(clientSocket));
+                    // Handle connection directly in the main thread
+                    handleClientConnection(clientSocket);
                     
+                } catch (java.net.SocketTimeoutException e) {
+                    // This is expected due to setSoTimeout - just continue the loop
+                    continue;
                 } catch (IOException e) {
-                    System.err.println("Error accepting connection: " + e.getMessage());
-                    // Brief pause before trying again
-                    try {
-                        Thread.sleep(1000);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
+                    if (running.get()) {
+                        System.err.println("Error accepting connection: " + e.getMessage());
+                        // Brief pause before trying again
+                        try {
+                            Thread.sleep(1000);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                        }
                     }
                 }
             }
@@ -46,7 +64,7 @@ public class Database {
             System.err.println("Fatal error starting database server: " + e.getMessage());
             e.printStackTrace();
         } finally {
-            threadPool.shutdown();
+            System.out.println("Database server shutdown complete");
         }
     }
     
@@ -73,9 +91,11 @@ public class Database {
             // Send existing drawing data from file
             sendDrawingHistory(outStream);
             
-            // Process incoming messages until connection closes
-            while (!clientSocket.isClosed()) {
+            // Process incoming messages until connection closes or server stops
+            while (running.get() && !clientSocket.isClosed()) {
                 try {
+                    // Set a smaller timeout for the read to check running state periodically
+                    clientSocket.setSoTimeout(1000);
                     Object message = inStream.readObject();
                     System.out.println("Received message of type: " + message.getClass().getName());
                     
@@ -93,16 +113,23 @@ public class Database {
                             System.out.println("Server confirmed ready state");
                         }
                     }
+                } catch (java.net.SocketTimeoutException e) {
+                    // Expected due to timeout - just continue the loop
+                    continue;
                 } catch (ClassNotFoundException e) {
                     System.err.println("Unknown object type received: " + e.getMessage());
                 } catch (IOException e) {
-                    System.err.println("Connection error with " + 
-                        clientSocket.getInetAddress().getHostAddress() + ": " + e.getMessage());
+                    if (running.get()) {
+                        System.err.println("Connection error with " + 
+                            clientSocket.getInetAddress().getHostAddress() + ": " + e.getMessage());
+                    }
                     break;  // Exit the loop on IO exception
                 }
             }
         } catch (IOException e) {
-            System.err.println("Error with client connection: " + e.getMessage());
+            if (running.get()) {
+                System.err.println("Error with client connection: " + e.getMessage());
+            }
         } finally {
             // Close resources in reverse order
             System.out.println("Cleaning up connection resources for " + 
@@ -138,15 +165,16 @@ public class Database {
             
             StringBuilder fileContents = new StringBuilder();
             String line;
+            int lineCount = 0;
             
             fileContents.append("ALLDRAW:");
             while ((line = br.readLine()) != null) {
-                System.out.println("Reading from DB: " + line);
                 fileContents.append(line).append("\n");
+                lineCount++;
             }
             
             // Send the content to the client
-            System.out.println("Sending drawing history to client");
+            System.out.println("Sending drawing history with " + lineCount + " actions to client");
             outStream.writeObject(fileContents.toString());
             outStream.flush();
             System.out.println("Drawing history sent successfully");

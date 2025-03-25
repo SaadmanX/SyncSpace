@@ -1105,22 +1105,19 @@ public class Server {
          * Sends a message to the remote server.
          */
         public void sendMessage(Object message) {
-            if (outputStream != null) {
-                synchronized (outputStream) {
-                    try {
-                        outputStream.writeObject(message);
-                        outputStream.flush();
-                    } catch (IOException e) {
-                        logMessage("Error sending message: " + e.getMessage());
-                        try{
-                            close();
-                        } catch (Exception e2){
-                            logMessage("Cannot cloe:" + e2.getMessage());
-                        }
-                    }
+            if (outputStream == null || socket == null || socket.isClosed()) {
+                logMessage("Cannot send message to " + remoteIp + " - connection is closed");
+                return;
+            }
+            
+            synchronized (outputStream) {
+                try {
+                    outputStream.writeObject(message);
+                    outputStream.flush();
+                } catch (IOException e) {
+                    logMessage("Error sending message to " + remoteIp + ": " + e.getMessage());
+                    close();
                 }
-            } else {
-                logMessage("OutputStream is NULL!!");
             }
         }
         
