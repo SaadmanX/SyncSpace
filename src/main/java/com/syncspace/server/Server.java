@@ -315,6 +315,7 @@ public class Server {
             while (leaderConn == null && i < 5) {
                 i++;
                 try {
+                    logMessage("couldnt connect to leader, trying again soon with leader ip: " + leaderIp);
                     Thread.sleep(RECONNECT_DELAY_MS);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
