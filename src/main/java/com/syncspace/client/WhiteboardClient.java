@@ -277,11 +277,11 @@ public class WhiteboardClient {
         serverCandidates.addAll(followerIps);
         
         // Then try all other known servers
-        for (String ip : knownServerIps) {
-            if (!serverCandidates.contains(ip)) {
-                serverCandidates.add(ip);
-            }
-        }
+        // for (String ip : knownServerIps) {
+        //     if (!serverCandidates.contains(ip)) {
+        //         serverCandidates.add(ip);
+        //     }
+        // }
         
         System.out.println("These are all the candidates:\n" + serverCandidates);
         
@@ -298,8 +298,8 @@ public class WhiteboardClient {
             chatPanel.receiveMessage("Attempting to connect to server at " + serverIp);
             try {
                 // Close existing connection resources
-                if (outputStream != null) outputStream.close();
                 if (inputStream != null) inputStream.close();
+                if (outputStream != null) outputStream.close();
                 if (socket != null) socket.close();
                 
                 // Connect to new server
