@@ -754,45 +754,100 @@ public class Server {
         
         // If leader, notify followers before shutting down
         if (isLeader()) {
+            logMessage("Shutting down as LEADER");
             logMessage("Notifying followers of shutdown");
             for (ServerConnection conn : new ArrayList<>(serverConnections)) {
                 if (conn.getType() == ServerConnectionType.FOLLOWER || conn.getType() == ServerConnectionType.DATABASE) {
+                    logMessage("Sending shutdown notice to " + conn.getType() + " at " + conn.getRemoteIp());
                     conn.sendMessage("LEADER_SHUTDOWN");
                 }
             }
             
             
             // Give followers time to process the shutdown message
+            logMessage("Waiting for followers to process shutdown message");
             try {
                 Thread.sleep(500);
             } catch (InterruptedException e) {
+                logMessage("Leader wait interrupted");
                 Thread.currentThread().interrupt();
             }
         } else {
+            logMessage("Shutting down as FOLLOWER");
             logMessage("Notifying leader of shutdown");
             for (ServerConnection conn : new ArrayList<>(serverConnections)) {
                 if (conn.getType() == ServerConnectionType.LEADER) {
+                    logMessage("Sending shutdown notice to LEADER at " + conn.getRemoteIp());
                     conn.sendMessage("FOLLOWER_SHUTDOWN:" + serverIp);
                 }
             }
-
+    
             try {
                 Thread.sleep(500);
             } catch (InterruptedException e) {
+                logMessage("Follower wait interrupted");
                 Thread.currentThread().interrupt();
             }
         }
-
+        
+        // Signal threads to stop
+        logMessage("Setting running flag to false");
+        running = false;
+        
+        // Cancel any scheduled tasks
+        if (leaderConnectFuture != null) {
+            logMessage("Cancelling leader connect task");
+            leaderConnectFuture.cancel(true);
+        }
+        
+        if (leaderHeartbeatFuture != null) {
+            logMessage("Cancelling leader heartbeat task");
+            leaderHeartbeatFuture.cancel(true);
+        }
+        
+        // Interrupt and wait for threads to finish
+        if (connectionReaderThread != null) {
+            logMessage("Interrupting connection reader thread");
+            connectionReaderThread.interrupt();
+            try {
+                logMessage("Waiting for connection reader thread to terminate");
+                connectionReaderThread.join(2000);
+                logMessage("Connection reader thread " + (connectionReaderThread.isAlive() ? "still running" : "terminated"));
+            } catch (InterruptedException e) {
+                logMessage("Wait for connection reader thread interrupted");
+                Thread.currentThread().interrupt();
+            }
+        }
+        
+        if (messageHandlerThread != null) {
+            logMessage("Interrupting message handler thread");
+            messageHandlerThread.interrupt();
+            try {
+                logMessage("Waiting for message handler thread to terminate");
+                messageHandlerThread.join(2000);
+                logMessage("Message handler thread " + (messageHandlerThread.isAlive() ? "still running" : "terminated"));
+            } catch (InterruptedException e) {
+                logMessage("Wait for message handler thread interrupted");
+                Thread.currentThread().interrupt();
+            }
+        }
+        
         // Close all connections
+        logMessage("Closing " + serverConnections.size() + " server connections");
+        int connectionCount = 0;
         for (ServerConnection conn : new ArrayList<>(serverConnections)) {
+            logMessage("Closing connection " + (++connectionCount) + ": " + conn.getType() + " at " + conn.getRemoteIp());
             conn.close();
         }
         serverConnections.clear();
+        logMessage("All server connections closed");
         
         // Close server sockets
         try {
             if (clientServerSocket != null && !clientServerSocket.isClosed()) {
+                logMessage("Closing client server socket");
                 clientServerSocket.close();
+                logMessage("Client server socket closed");
             }
         } catch (IOException e) {
             logMessage("Error closing client socket: " + e.getMessage());
@@ -800,74 +855,23 @@ public class Server {
         
         try {
             if (serverServerSocket != null && !serverServerSocket.isClosed()) {
+                logMessage("Closing server server socket");
                 serverServerSocket.close();
+                logMessage("Server server socket closed");
             }
         } catch (IOException e) {
             logMessage("Error closing server socket: " + e.getMessage());
         }
         
-        
-        // Signal threads to stop
-        running = false;
-        
-        // Cancel any scheduled tasks
-        if (leaderConnectFuture != null) {
-            leaderConnectFuture.cancel(true);
-        }
-        
-        if (leaderHeartbeatFuture != null) {
-            leaderHeartbeatFuture.cancel(true);
-        }
-        
-        // Interrupt and wait for threads to finish
-        if (connectionReaderThread != null) {
-            connectionReaderThread.interrupt();
-            try {
-                connectionReaderThread.join(2000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
-        
-        if (messageHandlerThread != null) {
-            messageHandlerThread.interrupt();
-            try {
-                messageHandlerThread.join(2000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
-        
-        // // Close all connections
-        // for (ServerConnection conn : new ArrayList<>(serverConnections)) {
-        //     conn.close();
-        // }
-        // serverConnections.clear();
-        
-        // // Close server sockets
-        // try {
-        //     if (clientServerSocket != null && !clientServerSocket.isClosed()) {
-        //         clientServerSocket.close();
-        //     }
-        // } catch (IOException e) {
-        //     logMessage("Error closing client socket: " + e.getMessage());
-        // }
-        
-        // try {
-        //     if (serverServerSocket != null && !serverServerSocket.isClosed()) {
-        //         serverServerSocket.close();
-        //     }
-        // } catch (IOException e) {
-        //     logMessage("Error closing server socket: " + e.getMessage());
-        // }
-        
         // Shutdown thread pools
+        logMessage("Shutting down scheduled task executor");
         scheduledTaskExecutor.shutdownNow();
+        
+        logMessage("Shutting down task executor");
         taskExecutor.shutdownNow();
         
         logMessage("Server shutdown complete");
-    }
-        
+    }        
     /**
      * Server connection types.
      */
