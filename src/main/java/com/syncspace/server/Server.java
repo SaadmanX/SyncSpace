@@ -598,6 +598,7 @@ public class Server {
         logMessage("Removed self from follower list: " + serverIp);
 
         actingAsLeader.set(true);
+        sendFollowersToConnections();
         
         // Notify clients of leadership change
         for (ClientHandler client : connectedClients) {
