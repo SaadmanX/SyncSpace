@@ -295,19 +295,6 @@ public class Server {
     }
     
     /**
-     * Replicates log message to all followers.
-     */
-    private void replicateLogToFollowers(String logMessage) {
-        if (!isLeader()) return;
-        
-        for (ServerConnection conn : new ArrayList<>(serverConnections)) {
-            if (conn.getType() == ServerConnectionType.FOLLOWER) {
-                conn.sendMessage("LOG:" + logMessage);
-            }
-        }
-    }
-
-    /**
      * Starts heartbeat monitoring of leader
      */
     private void startLeaderHeartbeatMonitor() {
@@ -459,7 +446,7 @@ public class Server {
                     // Otherwise, the scheduled task will try again after the delay.
                 }
             }
-        }, 0, RECONNECT_DELAY_MS, TimeUnit.MILLISECONDS);
+        }, RECONNECT_DELAY_MS, RECONNECT_DELAY_MS, TimeUnit.MILLISECONDS);
     }
     
     /**
