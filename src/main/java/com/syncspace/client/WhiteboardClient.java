@@ -10,7 +10,6 @@ import java.awt.event.*;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.List;
@@ -308,9 +307,9 @@ public class WhiteboardClient {
                 // socket = new Socket();
                 // System.out.println("Attempting socket connection to " + serverIp + ":" + 12345);
                 // socket.connect(new InetSocketAddress(serverIp, 12345), 5000); // 5 second timeout
-                socket = new Socket();
-                socket.setSoTimeout(5000); // 5 second read timeout
-                socket.connect(new InetSocketAddress(serverIp, 12345), 3000); // 3 second connect timeout
+                socket = new Socket(serverIp, 12345);
+                socket.setSoTimeout(10000); // 10 second read timeout
+                // socket.connect(new InetSocketAddress(serverIp, 12345), 3000); // 3 second connect timeout
                 
                 inputStream = new ObjectInputStream(socket.getInputStream());
                 outputStream = new ObjectOutputStream(socket.getOutputStream());
