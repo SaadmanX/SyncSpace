@@ -53,10 +53,18 @@ public class Database {
     private static void handleClientConnection(Socket clientSocket) {
         System.out.println("Handling connection from: " + clientSocket.getInetAddress().getHostAddress());
         
-        try (
-            ObjectOutputStream outStream = new ObjectOutputStream(clientSocket.getOutputStream());
-            ObjectInputStream inStream = new ObjectInputStream(clientSocket.getInputStream())
-        ) {
+        ObjectOutputStream outStream = null;
+        ObjectInputStream inStream = null;
+        
+        try {
+            // Set socket options for better disconnect detection
+            clientSocket.setSoTimeout(30000);  // 30 second read timeout
+            clientSocket.setKeepAlive(true);   // Enable TCP keepalive
+            
+            outStream = new ObjectOutputStream(clientSocket.getOutputStream());
+            outStream.flush();
+            inStream = new ObjectInputStream(clientSocket.getInputStream());
+            
             // Send ready signal
             outStream.writeObject("DB_READY");
             outStream.flush();
@@ -88,18 +96,36 @@ public class Database {
                 } catch (ClassNotFoundException e) {
                     System.err.println("Unknown object type received: " + e.getMessage());
                 } catch (IOException e) {
-                    System.err.println("Connection error: " + e.getMessage());
-                    break;  // Exit the loop on IO exception - connection likely lost
+                    System.err.println("Connection error with " + 
+                        clientSocket.getInetAddress().getHostAddress() + ": " + e.getMessage());
+                    break;  // Exit the loop on IO exception
                 }
             }
         } catch (IOException e) {
             System.err.println("Error with client connection: " + e.getMessage());
         } finally {
+            // Close resources in reverse order
+            System.out.println("Cleaning up connection resources for " + 
+                clientSocket.getInetAddress().getHostAddress());
+            
             try {
-                if (!clientSocket.isClosed()) {
+                if (inStream != null) inStream.close();
+            } catch (IOException e) {
+                System.err.println("Error closing input stream: " + e.getMessage());
+            }
+            
+            try {
+                if (outStream != null) outStream.close();
+            } catch (IOException e) {
+                System.err.println("Error closing output stream: " + e.getMessage());
+            }
+            
+            try {
+                if (clientSocket != null && !clientSocket.isClosed()) {
                     clientSocket.close();
+                    System.out.println("Socket closed successfully with: " + 
+                        clientSocket.getInetAddress().getHostAddress());
                 }
-                System.out.println("Connection closed with: " + clientSocket.getInetAddress().getHostAddress());
             } catch (IOException e) {
                 System.err.println("Error closing socket: " + e.getMessage());
             }
