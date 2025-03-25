@@ -51,6 +51,7 @@ public class Server {
     
     // Connection management
     private final List<ServerConnection> serverConnections = new CopyOnWriteArrayList<>();
+    private ServerConnection dbConn;
     private final List<String> followerIps = new CopyOnWriteArrayList<>();
     private final BlockingQueue<ConnectionMessage> messageQueue = new LinkedBlockingQueue<>(1000);
     
@@ -120,12 +121,55 @@ public class Server {
         // Initialize server based on role
         if (isLeader()) {
             startServerToServerListener();
+            startDBConn();
             startClientListener();
         } else {
             connectToLeader();
         }
     }
-    
+
+    /**
+     * Starts database connection asynchronously.
+     */
+    private void startDBConn() {
+        if (!isLeader()) return;
+        
+        taskExecutor.execute(() -> {
+            int retryCount = 0;
+            final int maxRetries = 5;
+            final int retryDelayMs = 2000;
+            
+            while (retryCount < maxRetries && running) {
+                try {
+                    logMessage("Attempting database connection to 10.13.150.99:1500 (Attempt " + (retryCount + 1) + ")");
+                    Socket dbSocket = new Socket("10.13.150.99", 1500);
+                    logMessage("Leader connected to database successfully");
+                    
+                    // Create and initialize connection
+                    dbConn = new ServerConnection(dbSocket, "10.13.150.99", ServerConnectionType.DATABASE);
+                    dbConn.start();
+                    
+                    // Successfully connected
+                    return;
+                    
+                } catch (IOException e) {
+                    retryCount++;
+                    logMessage("ERROR connecting to database: " + e.getMessage() + 
+                            (retryCount < maxRetries ? " Will retry in " + (retryDelayMs/1000) + " seconds." : " Giving up after " + retryCount + " attempts."));
+                    
+                    try {
+                        // Wait before retrying
+                        Thread.sleep(retryDelayMs);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                }
+            }
+            
+            logMessage("Could not establish database connection after " + maxRetries + " attempts. Server will run without database integration.");
+        });
+    }    
     /**
      * Gets the local server IP address.
      * @return Local IP address string
@@ -629,6 +673,7 @@ public class Server {
                 if (msg.getType() == Message.MessageType.CLEAR) {
                     drawingHistory.removeIf(m -> m.getType() == Message.MessageType.DRAW);
                 }
+                dbConn.sendMessage(msg);
                 
                 // If leader, replicate drawing history to followers
                 if (isLeader()) {
@@ -797,7 +842,8 @@ public class Server {
      */
     private enum ServerConnectionType {
         LEADER,
-        FOLLOWER
+        FOLLOWER,
+        DATABASE
     }
     
     /**
@@ -864,6 +910,7 @@ public class Server {
          * Handles incoming messages.
          */
         private void handleMessage(Object message) {
+
             if (message instanceof String) {
                 String stringMessage = (String) message;
                 if (stringMessage.equals("HEARTBEAT")) {
@@ -914,15 +961,97 @@ public class Server {
                         startElection();
                     }
                 }
+                else if (stringMessage.startsWith("ALLDRAW:")) {
+                    logMessage("attempting to remake history");
+                    String drawActions = stringMessage.substring("ALLDRAW:".length());
+                    updateDrawHistory(drawActions);
+                }
                 else {
                     // Other string messages
                     logMessage("Received message: " + stringMessage);
+                    // dbConn.sendMessage(stringMessage);
                 }
             } else {
                 logMessage("Received unknown message type: " + message.getClass().getName());
             }
         }
-        
+
+        /**
+         * Updates the drawing history with actions received from the database.
+         * Each line in the input string represents a single drawing action.
+         * 
+         * @param drawActions String containing all drawing actions, each on a separate line
+         */
+        private void updateDrawHistory(String drawActions) {
+            // Clear existing history
+            drawingHistory.clear();
+            
+            // Handle empty or null input
+            if (drawActions == null || drawActions.trim().isEmpty()) {
+                logMessage("Received empty drawing history from database");
+                return;
+            }
+            
+            // Split the actions by newline
+            String[] actions = drawActions.split("\n");
+            logMessage("Processing " + actions.length + " drawing actions from database");
+            
+            // Process each action
+            for (String action : actions) {
+                try {
+                    // Skip empty lines
+                    if (action.trim().isEmpty()) {
+                        continue;
+                    }
+                    
+                    // Parse the action format - expected format is "TYPE:DATA;USER"
+                    // For example: "DRAW:START:100,200;user123" or "CLEAR:CLEAR_ALL;SERVER"
+                    String[] parts = action.split(":", 2);
+                    if (parts.length < 2) {
+                        logMessage("Invalid drawing action format: " + action);
+                        continue;
+                    }
+                    
+                    String typeStr = parts[0].trim();
+                    String content = parts[1].trim();
+                    
+                    // Determine the message type
+                    Message.MessageType messageType = null;
+                    if (typeStr.equals("DRAW")) {
+                        messageType = Message.MessageType.DRAW;
+                    } else if (typeStr.equals("CLEAR")) {
+                        messageType = Message.MessageType.CLEAR;
+                        
+                        // If this is a clear command, we should remove previous draw actions
+                        if (content.contains("CLEAR_ALL")) {
+                            drawingHistory.removeIf(m -> m.getType() == Message.MessageType.DRAW);
+                        }
+                    } else {
+                        logMessage("Unknown drawing action type: " + typeStr);
+                        continue;
+                    }
+                    
+                    // Extract user ID from content if it contains a semicolon
+                    String senderId = "SERVER";  // Default sender
+                    if (content.contains(";")) {
+                        String[] contentParts = content.split(";", 2);
+                        content = contentParts[0];
+                        if (contentParts.length > 1) {
+                            senderId = contentParts[1];
+                        }
+                    }
+                    
+                    // Create message and add to history
+                    Message msg = new Message(messageType, content, senderId);
+                    drawingHistory.add(msg);
+                    
+                } catch (Exception e) {
+                    logMessage("Error parsing drawing action '" + action + "': " + e.getMessage());
+                }
+            }
+            
+            logMessage("Successfully updated drawing history with " + drawingHistory.size() + " actions");
+        }        
         /**
          * Handles drawing replication messages from the leader.
          */
@@ -974,6 +1103,8 @@ public class Server {
                         }
                     }
                 }
+            } else {
+                logMessage("OutputStream is NULL!!");
             }
         }
         
