@@ -141,12 +141,12 @@ public class Server {
             
             while (retryCount < maxRetries && running) {
                 try {
-                    logMessage("Attempting database connection to 10.59.174.212:1500 (Attempt " + (retryCount + 1) + ")");
-                    Socket dbSocket = new Socket("10.59.174.212", 1500);
+                    logMessage("Attempting database connection to 10.59.174.209:1500 (Attempt " + (retryCount + 1) + ")");
+                    Socket dbSocket = new Socket("10.59.174.209", 1500);
                     logMessage("Leader connected to database successfully");
                     
                     // Create and initialize connection
-                    dbConn = new ServerConnection(dbSocket, "10.59.174.212", ServerConnectionType.DATABASE);
+                    dbConn = new ServerConnection(dbSocket, "10.59.174.209", ServerConnectionType.DATABASE);
                     serverConnections.add(dbConn);  // Add this line to register the connection
                     dbConn.start();
                     
