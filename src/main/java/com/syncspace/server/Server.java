@@ -310,7 +310,18 @@ public class Server {
             }
             
             // Check if leader connection exists
+            int i = 0;
             ServerConnection leaderConn = getLeaderConnection();
+            while (leaderConn == null && i < 5) {
+                i++;
+                try {
+                    Thread.sleep(RECONNECT_DELAY_MS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                leaderConn = getLeaderConnection();
+            }
             if (leaderConn == null) {
                 logMessage("Leader connection lost, starting election");
                 cancelHeartbeatMonitor();
