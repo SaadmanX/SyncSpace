@@ -366,7 +366,8 @@ public class WhiteboardClient {
     }
 
     private void handleDrawAction(String actionData) {
-        System.out.println("DEBUG: handleDrawAction received: " + actionData);
+        // System.out.println("DEBUG: handleDrawAction received: " + actionData);
+        System.out.println(actionData);
         
         try {
             // Check if this is a raw drawing command without userId (from history)
@@ -377,39 +378,30 @@ public class WhiteboardClient {
             
             // Extract user ID from the action data
             String[] parts = actionData.split(";");
-            System.out.println("DEBUG: Split into " + parts.length + " parts");
             
             String action = parts[0];
             String userId = parts.length > 1 ? parts[1] : "unknown";
-            System.out.println("DEBUG: Action: '" + action + "', UserId: '" + userId + "'");
             
             if (action.startsWith("START:")) {
                 String coords = action.substring(6);
-                System.out.println("DEBUG: START coords string: " + coords);
                 String[] coordParts = coords.split(",");
-                System.out.println("DEBUG: Coord parts length: " + coordParts.length);
                 
                 int x = Integer.parseInt(coordParts[0]);
                 int y = Integer.parseInt(coordParts[1]);
-                System.out.println("DEBUG: Starting drawing at position (" + x + "," + y + ") for user " + userId);
                 
                 whiteboardPanel.startDrawing(new Point(x, y), userId);
                 
             } else if (action.startsWith("DRAW:")) {
                 String coords = action.substring(5);
-                System.out.println("DEBUG: DRAG coords string: " + coords);
                 String[] coordParts = coords.split(",");
                 
                 int x = Integer.parseInt(coordParts[0]);
                 int y = Integer.parseInt(coordParts[1]);
-                System.out.println("DEBUG: Continuing drawing at (" + x + "," + y + ") for user " + userId);
                 
                 whiteboardPanel.continueDraw(new Point(x, y), userId);
                 
             } else if (action.startsWith("END:")) {
-                System.out.println("DEBUG: Ending drawing for user " + userId);
                 whiteboardPanel.endDrawing(userId);
-                
             } else {
                 System.out.println("DEBUG: Unknown action type: " + action);
             }
