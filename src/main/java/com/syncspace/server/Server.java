@@ -265,9 +265,6 @@ public class Server {
                 // Block until a message is available or timeout
                 ConnectionMessage msg = messageQueue.poll(500, TimeUnit.MILLISECONDS);
 
-                logMessage("Message queue size: " + messageQueue.size() + ", Type: " + 
-                (msg != null ? msg.message.getClass().getName() : "null"));
-
                 if (msg != null) {
                     // Process the message
                     try {
