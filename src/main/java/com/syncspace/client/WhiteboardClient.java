@@ -10,6 +10,7 @@ import java.awt.event.*;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.List;
@@ -304,15 +305,21 @@ public class WhiteboardClient {
                 
                 // Connect to new server
                 System.out.println("Trying to connect to: " + serverIp);
-                socket = new Socket(serverIp, 12345);
+                // socket = new Socket();
+                // System.out.println("Attempting socket connection to " + serverIp + ":" + 12345);
+                // socket.connect(new InetSocketAddress(serverIp, 12345), 5000); // 5 second timeout
+                socket = new Socket();
+                socket.setSoTimeout(5000); // 5 second read timeout
+                socket.connect(new InetSocketAddress(serverIp, 12345), 3000); // 3 second connect timeout
+                
+                inputStream = new ObjectInputStream(socket.getInputStream());
                 outputStream = new ObjectOutputStream(socket.getOutputStream());
                 outputStream.flush();
-                inputStream = new ObjectInputStream(socket.getInputStream());
                 
                 // Re-register with the same username
                 registerUser(username);
                 
-                chatPanel.receiveMessage("*** Successfully reconnected to server at " + serverIp + " ***");
+                chatPanel.receiveMessage("*** Successfully connected to server at " + serverIp + " ***");
                 return; // Successfully reconnected
             } catch (IOException e) {
                 chatPanel.receiveMessage("Failed to connect to " + serverIp + ": " + e.getMessage());
