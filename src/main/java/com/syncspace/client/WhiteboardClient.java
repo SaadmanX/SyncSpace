@@ -279,11 +279,11 @@ public class WhiteboardClient {
         serverCandidates.addAll(followerIps);
         
         // Then try all other known servers
-        // for (String ip : knownServerIps) {
-        //     if (!serverCandidates.contains(ip)) {
-        //         serverCandidates.add(ip);
-        //     }
-        // }
+        for (String ip : knownServerIps) {
+            if (!serverCandidates.contains(ip)) {
+                serverCandidates.add(ip);
+            }
+        }
         
         System.out.println("These are all the candidates:\n" + serverCandidates);
         
