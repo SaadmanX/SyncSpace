@@ -532,7 +532,7 @@ public class Server {
         logMessage("========== STARTING ELECTION PROCESS ==========");
         
         List<String> allServerIps = new ArrayList<>(followerIps);
-        allServerIps.add(serverIp);
+
         
         logMessage("Servers participating in election: " + allServerIps);
         
