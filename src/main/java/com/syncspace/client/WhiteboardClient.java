@@ -366,6 +366,7 @@ public class WhiteboardClient {
     }
 
     private void handleDrawAction(String actionData) {
+        System.out.println(actionData);
         // Extract user ID from the action data
         String[] parts = actionData.split(";");
         String action = parts[0];

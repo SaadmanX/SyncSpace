@@ -1059,6 +1059,7 @@ public class Server {
                     // Create message and add to history
                     Message msg = new Message(messageType, content, senderId);
                     drawingHistory.add(msg);
+                    logMessage(msg.toString());
                     
                 } catch (Exception e) {
                     logMessage("Error parsing drawing action '" + action + "': " + e.getMessage());

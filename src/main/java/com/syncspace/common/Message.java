@@ -41,4 +41,24 @@ public class Message implements Serializable {
     public long getTimestamp() {
         return timestamp;
     }
+
+    @Override
+    public String toString() {
+        // Get message type name without the "MessageType." prefix
+        String typeName = type.name();
+        
+        // Format timestamp to make it more readable
+        java.text.SimpleDateFormat dateFormat = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
+        String formattedTimestamp = dateFormat.format(new java.util.Date(timestamp));
+        
+        // Build the string representation
+        StringBuilder sb = new StringBuilder();
+        sb.append("Message{type=").append(typeName);
+        sb.append(", content='").append(content).append('\'');
+        sb.append(", senderId='").append(senderId).append('\'');
+        sb.append(", timestamp=").append(formattedTimestamp);
+        sb.append('}');
+        
+        return sb.toString();
+    }
 }
