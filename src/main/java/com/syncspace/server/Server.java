@@ -386,12 +386,12 @@ public class Server {
                         ServerConnection connection = new ServerConnection(
                             followerSocket, followerIp, ServerConnectionType.FOLLOWER);
                         serverConnections.add(connection);
+                        connection.start();
+
                         followerIps.add(followerIp);
                         sendFollowersToConnections();
                         logServerState();
 
-                        // Initialize the connection
-                        connection.start();
                     } catch (IOException e) {
                         if (!serverSocket.isClosed()) {
                             logMessage("ERROR accepting follower connection: " + e.getMessage());
@@ -812,12 +812,6 @@ public class Server {
                 Thread.currentThread().interrupt();
             }
         }
-
-        if (dbConn != null) {
-            dbConn.close();
-            dbConn = null;
-        }
-    
         
         // Close all connections
         for (ServerConnection conn : new ArrayList<>(serverConnections)) {
@@ -962,9 +956,14 @@ public class Server {
                 else if (stringMessage.startsWith("FOLLOWER_SHUTDOWN:")) {
                     String followerIp = stringMessage.substring("FOLLOWER_SHUTDOWN:".length());
                     followerIps.remove(followerIp);
-                    close();
+                    try {
+                        if (socket != null && !socket.isClosed())
+                        socket.close();
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
                     sendFollowersToConnections();
-                    logServerState();
+                    logServerState();                
                 }
                 else if (stringMessage.equals("LEADER_SHUTDOWN")) {
                     logMessage("Leader notified of orderly shutdown, starting election");
@@ -1115,7 +1114,7 @@ public class Server {
                         try{
                             close();
                         } catch (Exception e2){
-                            logMessage("Cannot cloe:" + e.getMessage());
+                            logMessage("Cannot cloe:" + e2.getMessage());
                         }
                     }
                 }
