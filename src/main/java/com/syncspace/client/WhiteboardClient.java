@@ -114,7 +114,7 @@ public class WhiteboardClient {
             public void mouseDragged(MouseEvent e) {
                 // Continue drawing and send message to server
                 whiteboardPanel.continueDraw(new Point(e.getX(), e.getY()), username);
-                sendDrawAction("DRAG:" + e.getX() + "," + e.getY(), 0);
+                sendDrawAction("DRAW:" + e.getX() + "," + e.getY(), 0);
             }
         });
 
@@ -377,7 +377,7 @@ public class WhiteboardClient {
             int x = Integer.parseInt(coordParts[0]);
             int y = Integer.parseInt(coordParts[1]);
             whiteboardPanel.startDrawing(new Point(x, y), userId);
-        } else if (action.startsWith("DRAG:")) {
+        } else if (action.startsWith("DRAW:")) {
             String coords = action.substring(5);
             String[] coordParts = coords.split(",");
             int x = Integer.parseInt(coordParts[0]);
