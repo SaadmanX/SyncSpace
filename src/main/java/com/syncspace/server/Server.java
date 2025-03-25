@@ -782,6 +782,30 @@ public class Server {
                 Thread.currentThread().interrupt();
             }
         }
+
+        // Close all connections
+        for (ServerConnection conn : new ArrayList<>(serverConnections)) {
+            conn.close();
+        }
+        serverConnections.clear();
+        
+        // Close server sockets
+        try {
+            if (clientServerSocket != null && !clientServerSocket.isClosed()) {
+                clientServerSocket.close();
+            }
+        } catch (IOException e) {
+            logMessage("Error closing client socket: " + e.getMessage());
+        }
+        
+        try {
+            if (serverServerSocket != null && !serverServerSocket.isClosed()) {
+                serverServerSocket.close();
+            }
+        } catch (IOException e) {
+            logMessage("Error closing server socket: " + e.getMessage());
+        }
+        
         
         // Signal threads to stop
         running = false;
@@ -814,28 +838,28 @@ public class Server {
             }
         }
         
-        // Close all connections
-        for (ServerConnection conn : new ArrayList<>(serverConnections)) {
-            conn.close();
-        }
-        serverConnections.clear();
+        // // Close all connections
+        // for (ServerConnection conn : new ArrayList<>(serverConnections)) {
+        //     conn.close();
+        // }
+        // serverConnections.clear();
         
-        // Close server sockets
-        try {
-            if (clientServerSocket != null && !clientServerSocket.isClosed()) {
-                clientServerSocket.close();
-            }
-        } catch (IOException e) {
-            logMessage("Error closing client socket: " + e.getMessage());
-        }
+        // // Close server sockets
+        // try {
+        //     if (clientServerSocket != null && !clientServerSocket.isClosed()) {
+        //         clientServerSocket.close();
+        //     }
+        // } catch (IOException e) {
+        //     logMessage("Error closing client socket: " + e.getMessage());
+        // }
         
-        try {
-            if (serverServerSocket != null && !serverServerSocket.isClosed()) {
-                serverServerSocket.close();
-            }
-        } catch (IOException e) {
-            logMessage("Error closing server socket: " + e.getMessage());
-        }
+        // try {
+        //     if (serverServerSocket != null && !serverServerSocket.isClosed()) {
+        //         serverServerSocket.close();
+        //     }
+        // } catch (IOException e) {
+        //     logMessage("Error closing server socket: " + e.getMessage());
+        // }
         
         // Shutdown thread pools
         scheduledTaskExecutor.shutdownNow();
