@@ -1145,10 +1145,16 @@ public class Server {
                     outputStream.flush();
                 } catch (IOException e) {
                     logMessage("Error sending message to " + remoteIp + ": " + e.getMessage());
-                    close();
+                    try {
+                        close();
+                    } catch (Exception m) {
+                        logMessage("Cannot close. line 1151: " + m.getMessage());
+                    }
                 }
             }
         }
+
+        
         
         /**
          * Closes the connection and cleans up resources.
