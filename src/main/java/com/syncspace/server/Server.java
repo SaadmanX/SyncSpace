@@ -790,6 +790,27 @@ public class Server {
         // Signal threads to stop
         logMessage("Setting running flag to false");
         running = false;
+
+        // Close server sockets
+        try {
+            if (clientServerSocket != null && !clientServerSocket.isClosed()) {
+                logMessage("Closing client server socket");
+                clientServerSocket.close();
+                logMessage("Client server socket closed");
+            }
+        } catch (IOException e) {
+            logMessage("Error closing client socket: " + e.getMessage());
+        }
+        
+        try {
+            if (serverServerSocket != null && !serverServerSocket.isClosed()) {
+                logMessage("Closing server server socket");
+                serverServerSocket.close();
+                logMessage("Server server socket closed");
+            }
+        } catch (IOException e) {
+            logMessage("Error closing server socket: " + e.getMessage());
+        }
         
         // Cancel any scheduled tasks
         if (leaderConnectFuture != null) {
@@ -839,26 +860,6 @@ public class Server {
         serverConnections.clear();
         logMessage("All server connections closed");
         
-        // Close server sockets
-        try {
-            if (clientServerSocket != null && !clientServerSocket.isClosed()) {
-                logMessage("Closing client server socket");
-                clientServerSocket.close();
-                logMessage("Client server socket closed");
-            }
-        } catch (IOException e) {
-            logMessage("Error closing client socket: " + e.getMessage());
-        }
-        
-        try {
-            if (serverServerSocket != null && !serverServerSocket.isClosed()) {
-                logMessage("Closing server server socket");
-                serverServerSocket.close();
-                logMessage("Server server socket closed");
-            }
-        } catch (IOException e) {
-            logMessage("Error closing server socket: " + e.getMessage());
-        }
         
         // Shutdown thread pools
         logMessage("Shutting down scheduled task executor");
