@@ -313,10 +313,10 @@ public class WhiteboardClient {
                 socket.setSoTimeout(10000); // 10 second read timeout
                 // socket.connect(new InetSocketAddress(serverIp, 12345), 3000); // 3 second connect timeout
                 
-                inputStream = new ObjectInputStream(socket.getInputStream());
                 outputStream = new ObjectOutputStream(socket.getOutputStream());
                 outputStream.flush();
-                
+                inputStream = new ObjectInputStream(socket.getInputStream());
+
                 // Re-register with the same username
                 registerUser(username);
                 
