@@ -369,6 +369,12 @@ public class WhiteboardClient {
         System.out.println("DEBUG: handleDrawAction received: " + actionData);
         
         try {
+            // Check if this is a raw drawing command without userId (from history)
+            if (!actionData.contains(";")) {
+                // Add a default userId if none is present
+                actionData = actionData + ";SERVER";
+            }
+            
             // Extract user ID from the action data
             String[] parts = actionData.split(";");
             System.out.println("DEBUG: Split into " + parts.length + " parts");
