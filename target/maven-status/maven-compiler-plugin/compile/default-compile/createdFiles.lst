@@ -1,4 +1,5 @@
 com/syncspace/server/ClientHandler.class
+com/syncspace/server/Database.class
 com/syncspace/common/Message.class
 com/syncspace/server/Server$ServerConnection.class
 com/syncspace/client/WhiteboardClient$1.class

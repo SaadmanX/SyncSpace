@@ -147,6 +147,7 @@ public class Server {
                     
                     // Create and initialize connection
                     dbConn = new ServerConnection(dbSocket, "10.13.150.99", ServerConnectionType.DATABASE);
+                    serverConnections.add(dbConn);  // Add this line to register the connection
                     dbConn.start();
                     
                     // Successfully connected
@@ -264,6 +265,10 @@ public class Server {
             try {
                 // Block until a message is available or timeout
                 ConnectionMessage msg = messageQueue.poll(500, TimeUnit.MILLISECONDS);
+
+                logMessage("Message queue size: " + messageQueue.size() + ", Type: " + 
+                (msg != null ? msg.message.getClass().getName() : "null"));
+
                 if (msg != null) {
                     // Process the message
                     try {
@@ -608,6 +613,7 @@ public class Server {
         }
         
         startServerToServerListener();
+        startDBConn();
         startClientListener();
         
         logMessage("Successfully transitioned to leader mode");
@@ -806,6 +812,12 @@ public class Server {
                 Thread.currentThread().interrupt();
             }
         }
+
+        if (dbConn != null) {
+            dbConn.close();
+            dbConn = null;
+        }
+    
         
         // Close all connections
         for (ServerConnection conn : new ArrayList<>(serverConnections)) {
@@ -966,6 +978,9 @@ public class Server {
                     String drawActions = stringMessage.substring("ALLDRAW:".length());
                     updateDrawHistory(drawActions);
                 }
+                else if (stringMessage.equals("DB_READY")) {
+                    dbConn.sendMessage("SERVER_READY");
+                }                
                 else {
                     // Other string messages
                     logMessage("Received message: " + stringMessage);

@@ -2,10 +2,8 @@ package com.syncspace.server;
 
 import java.io.IOException;
 import com.syncspace.common.Message;
-import java.io.InputStream;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 
@@ -27,21 +25,22 @@ public class Database { // code to handle the database from incomming server con
                     System.out.println("NOT CONNECTED");
                 }
                 outstream = new ObjectOutputStream(sock.getOutputStream());
-                // outstream.flush();
-                instream = new ObjectInputStream(sock.getInputStream());
+                outstream.writeObject("DB_READY");
+                outstream.flush();
+                                instream = new ObjectInputStream(sock.getInputStream());
                 // Read from a file and send its contents over the socket
                 try (java.io.FileReader fr = new java.io.FileReader("/Users/smitster1403/Desktop/559/database_log.txt");
                     java.io.BufferedReader br = new java.io.BufferedReader(fr)) {
                     StringBuilder fileContents = new StringBuilder();
                     String line;
-                    fileContents.append("ALLDRAW:\n");
+                    fileContents.append("ALLDRAW:");
                     while ((line = br.readLine()) != null) {
                         System.out.println("Sending: "+line);
                         fileContents.append(line).append("\n");
                     }
                     // Create a message with the file contents and send it
                     System.out.println("Sending: \n"+fileContents.toString() + "\n-----\n");
-                    outstream.writeObject((Object)fileContents);
+                    outstream.writeObject(fileContents.toString());
                     outstream.flush();
                     System.out.println("Sent file contents to client");
                     
