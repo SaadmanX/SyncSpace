@@ -161,9 +161,8 @@ public class Server {
                     try {
                         // Wait before retrying
                         Thread.sleep(retryDelayMs);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        return;
+                    } catch (Exception ie) {
+                        ie.printStackTrace();
                     }
                 }
             }
