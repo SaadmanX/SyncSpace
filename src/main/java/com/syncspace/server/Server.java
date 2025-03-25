@@ -602,6 +602,7 @@ public class Server {
         // Notify clients of leadership change
         for (ClientHandler client : connectedClients) {
             client.sendMessage("SERVER_LEADERSHIP_CHANGE");
+            client.sendMessage("NEW_LEADER_IP" + serverIp);
         }
         
         startServerToServerListener();

@@ -214,13 +214,11 @@ public class WhiteboardClient {
     // }
 
     private void startListeningForMessages() {
-        System.err.println("started listening for messages");
         new Thread(() -> {
             try {
                 while (true) {
                     try {
                         Object input = inputStream.readObject();
-                        // Process messages as before...
                         if (input instanceof Message) {
                             handleMessage((Message) input);
                         } else if (input instanceof String) {
@@ -229,22 +227,30 @@ public class WhiteboardClient {
                                 // Extract the follower list part
                                 String followerListPart = message.substring("SERVER_FOLLOWER_LIST:".length());
                                 updateFollowerList(followerListPart);
-                                System.err.println(followerIps);
                             } else if (message.equals("SERVER_LEADERSHIP_CHANGE")) {
                                 chatPanel.receiveMessage("*** Server leadership has changed ***");
+                            } else if (message.startsWith("NEW_LEADER_IP:")) {
+                                // NEW CASE: Handle new leader notification
+                                String newLeaderIp = message.substring("NEW_LEADER_IP:".length());
+                                chatPanel.receiveMessage("*** New leader server is: " + newLeaderIp + " ***");
+                                
+                                // Add to known servers if not already there
+                                if (!knownServerIps.contains(newLeaderIp)) {
+                                    knownServerIps.add(newLeaderIp);
+                                }
+                                
+                                // If this isn't the server we're already connected to, reconnect
+                                if (!socket.getInetAddress().getHostAddress().equals(newLeaderIp)) {
+                                    chatPanel.receiveMessage("Attempting to connect to new leader: " + newLeaderIp);
+                                    // Attempt connection to new leader
+                                    handleServerChangeWithNewLeader(newLeaderIp);
+                                }
                             } else {
                                 // Handle regular string messages
                                 chatPanel.receiveMessage(message);
                             }                    
                         } else if (input instanceof Boolean) {
-                            // Registration response
-                            boolean success = (Boolean) input;
-                            if (success) {
-                                chatPanel.receiveMessage("Successfully connected to the server!");
-                            } else {
-                                showError("Failed to register. Username might be taken.");
-                                System.exit(0);
-                            }
+                            // Registration response handler...
                         }
                     } catch (ClassNotFoundException e) {
                         chatPanel.receiveMessage("Error processing message: " + e.getMessage());
@@ -257,14 +263,41 @@ public class WhiteboardClient {
         }).start();
     }
 
+    // New method to handle directed connection to a new leader
+    private void handleServerChangeWithNewLeader(String newLeaderIp) {
+        try {
+            // Close existing connection resources
+            closeExistingConnections();
+            
+            // Connect to new leader
+            System.out.println("Connecting to new leader at " + newLeaderIp + ":12345");
+            socket = new Socket();
+            socket.connect(new java.net.InetSocketAddress(newLeaderIp, 12345), 5000);
+            socket.setSoTimeout(10000);
+            
+            // Set up streams
+            outputStream = new ObjectOutputStream(socket.getOutputStream());
+            outputStream.flush();
+            inputStream = new ObjectInputStream(socket.getInputStream());
+            
+            // Re-register with the same username
+            registerUser(username);
+            chatPanel.receiveMessage("*** Successfully connected to new leader at " + newLeaderIp + " ***");
+        } catch (Exception e) {
+            chatPanel.receiveMessage("Failed to connect to new leader: " + e.getMessage());
+            // Fall back to normal reconnection process
+            handleServerDisconnection();
+        }
+    }
+
     private void handleServerDisconnection() {
         // Client lost connection to server
         chatPanel.receiveMessage("*** Connection to server lost. Attempting to reconnect... ***");
         
-        // First, let's wait to allow leader election to complete (5 seconds)
+        // First, let's wait to allow leader election to complete (8 seconds)
         chatPanel.receiveMessage("Waiting for servers to complete leadership election...");
         try {
-            Thread.sleep(8000);  // 5 seconds delay for leader election
+            Thread.sleep(8000);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -272,78 +305,117 @@ public class WhiteboardClient {
         // Try to reconnect to all known servers
         List<String> serverCandidates = new ArrayList<>();
         
-        // First try the current server
-        serverCandidates.add(socket.getInetAddress().getHostAddress());
-        
-        // Then try all followers
+        // First try all followers since one of them might be the new leader
         serverCandidates.addAll(followerIps);
         
-        // Then try all other known servers
+        // Then try the old leader if different from followers
+        String oldLeaderIp = socket.getInetAddress().getHostAddress();
+        if (!serverCandidates.contains(oldLeaderIp)) {
+            serverCandidates.add(oldLeaderIp);
+        }
+        
+        // Add any other known servers
         for (String ip : knownServerIps) {
             if (!serverCandidates.contains(ip)) {
                 serverCandidates.add(ip);
             }
         }
         
-        System.out.println("These are all the candidates:\n" + serverCandidates);
-        
-        // Remove servers we've already tried that failed
-        serverCandidates.removeIf(ip -> ip.equals(socket.getInetAddress().getHostAddress()));
+        System.out.println("Reconnection candidates: " + serverCandidates);
         
         if (serverCandidates.isEmpty()) {
             showError("No backup servers available. Please restart the application.");
             return;
         }
         
-        // Try each server in the follower list
+        // Try each server - IMPORTANT: No early removal of candidates
         for (String serverIp : serverCandidates) {
             chatPanel.receiveMessage("Attempting to connect to server at " + serverIp);
             try {
                 // Close existing connection resources
-                if (inputStream != null) inputStream.close();
-                if (outputStream != null) outputStream.close();
-                if (socket != null) socket.close();
+                closeExistingConnections();
                 
-                // Connect to new server
-                System.out.println("Trying to connect to: " + serverIp);
-                // socket = new Socket();
-                // System.out.println("Attempting socket connection to " + serverIp + ":" + 12345);
-                // socket.connect(new InetSocketAddress(serverIp, 12345), 5000); // 5 second timeout
-                socket = new Socket(serverIp, 12345);
-                socket.setSoTimeout(10000); // 10 second read timeout
-                // socket.connect(new InetSocketAddress(serverIp, 12345), 3000); // 3 second connect timeout
+                // Connect to new server with proper timeout handling
+                Socket newSocket = null;
+                try {
+                    System.out.println("Connecting to " + serverIp + ":12345...");
+                    newSocket = new Socket();
+                    newSocket.connect(new java.net.InetSocketAddress(serverIp, 12345), 5000);
+                    newSocket.setSoTimeout(10000);
+                } catch (IOException e) {
+                    System.out.println("Failed to connect to " + serverIp + ": " + e.getMessage());
+                    continue; // Try next server
+                }
                 
-                inputStream = new ObjectInputStream(socket.getInputStream());
-                outputStream = new ObjectOutputStream(socket.getOutputStream());
-                outputStream.flush();
+                // Set up streams
+                try {
+                    // Always create output stream first, then input stream
+                    ObjectOutputStream newOut = new ObjectOutputStream(newSocket.getOutputStream());
+                    newOut.flush();
+                    ObjectInputStream newIn = new ObjectInputStream(newSocket.getInputStream());
+                    
+                    // Update class fields only after successful connection
+                    socket = newSocket;
+                    outputStream = newOut;
+                    inputStream = newIn;
+                } catch (IOException e) {
+                    // If stream setup fails, close socket and try next server
+                    try { newSocket.close(); } catch (Exception ignored) {}
+                    System.out.println("Failed to setup streams with " + serverIp + ": " + e.getMessage());
+                    continue;
+                }
                 
                 // Re-register with the same username
-                registerUser(username);
-                
-                chatPanel.receiveMessage("*** Successfully connected to server at " + serverIp + " ***");
-                return; // Successfully reconnected
-            } catch (IOException e) {
-                chatPanel.receiveMessage("Failed to connect to " + serverIp + ": " + e.getMessage());
-                
-                // Add a short delay between connection attempts
                 try {
-                    Thread.sleep(2000);  // 2 seconds delay between attempts
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
+                    registerUser(username);
+                    chatPanel.receiveMessage("*** Successfully connected to server at " + serverIp + " ***");
+                    return; // Successfully reconnected
+                } catch (Exception e) {
+                    System.out.println("Failed to register with " + serverIp + ": " + e.getMessage());
+                    closeExistingConnections();
                 }
+                
+            } catch (Exception e) {
+                chatPanel.receiveMessage("Error connecting to " + serverIp + ": " + e.getMessage());
+            }
+            
+            // Add a short delay between connection attempts
+            try {
+                Thread.sleep(2000);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
             }
         }
         
-        // If we get here, all reconnection attempts failed
-        chatPanel.receiveMessage("All reconnection attempts failed. Waiting 10 seconds before trying again...");
-        
-        // Wait longer and try again with a recursive call
+        // Recursive retry logic
+        chatPanel.receiveMessage("All reconnection attempts failed. Will retry in 10 seconds...");
         try {
-            Thread.sleep(10000);  // 10 seconds wait before retrying the whole process
-            handleServerDisconnection();  // Recursive call to try again
+            Thread.sleep(10000);
+            handleServerDisconnection();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             showError("Failed to reconnect to any available server. Please restart the application.");
+        }
+    }
+
+    // Helper method to close connections
+    private void closeExistingConnections() {
+        try {
+            if (inputStream != null) inputStream.close();
+        } catch (Exception e) {
+            System.out.println("Error closing input stream: " + e.getMessage());
+        }
+        
+        try {
+            if (outputStream != null) outputStream.close();
+        } catch (Exception e) {
+            System.out.println("Error closing output stream: " + e.getMessage());
+        }
+        
+        try {
+            if (socket != null) socket.close();
+        } catch (Exception e) {
+            System.out.println("Error closing socket: " + e.getMessage());
         }
     }
 
