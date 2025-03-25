@@ -292,10 +292,6 @@ public class Server {
         String serverType = isLeader() ? "[LEADER]" : "[FOLLOWER]";
         System.out.println(timestamp + " " + serverType + " " + message);
         
-        // Replicate log to followers if this is the leader
-        if (isLeader()) {
-            replicateLogToFollowers(timestamp + " " + serverType + " " + message);
-        }
     }
     
     /**
