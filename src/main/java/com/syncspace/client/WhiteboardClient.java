@@ -214,6 +214,7 @@ public class WhiteboardClient {
     // }
 
     private void startListeningForMessages() {
+        System.err.println("started listening for messages");
         new Thread(() -> {
             try {
                 while (true) {
@@ -434,7 +435,7 @@ public class WhiteboardClient {
         try {
             outputStream.writeObject(username);
             outputStream.flush();
-            
+            System.err.println("output stream created");
             // Start listening for messages after registration
             startListeningForMessages();
         } catch (IOException e) {
