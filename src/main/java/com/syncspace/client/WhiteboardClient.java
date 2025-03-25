@@ -389,7 +389,7 @@ public class WhiteboardClient {
                 
                 whiteboardPanel.startDrawing(new Point(x, y), userId);
                 
-            } else if (action.startsWith("DRAG:")) {
+            } else if (action.startsWith("DRAW:")) {
                 String coords = action.substring(5);
                 System.out.println("DEBUG: DRAG coords string: " + coords);
                 String[] coordParts = coords.split(",");
@@ -413,7 +413,7 @@ public class WhiteboardClient {
             System.err.println("Original action data: " + actionData);
         }
     }
-    
+
     private void updateFollowerListUI() {
         // This could update a status bar, a label, or add to the chat panel
         chatPanel.receiveMessage("--- Connected follower servers: " + followerIps.size() + " ---");
