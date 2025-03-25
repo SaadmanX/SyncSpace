@@ -756,10 +756,12 @@ public class Server {
         if (isLeader()) {
             logMessage("Notifying followers of shutdown");
             for (ServerConnection conn : new ArrayList<>(serverConnections)) {
-                if (conn.getType() == ServerConnectionType.FOLLOWER) {
+                if (conn.getType() == ServerConnectionType.FOLLOWER || conn.getType() == ServerConnectionType.DATABASE) {
                     conn.sendMessage("LEADER_SHUTDOWN");
                 }
             }
+            
+            
             // Give followers time to process the shutdown message
             try {
                 Thread.sleep(500);
@@ -970,6 +972,9 @@ public class Server {
                         close();
                         startElection();
                     }
+                    else if (type == ServerConnectionType.DATABASE) {
+                        close();
+                    }
                 }
                 else if (stringMessage.startsWith("ALLDRAW:")) {
                     logMessage("attempting to remake history");
@@ -1010,7 +1015,6 @@ public class Server {
             logMessage("Processing " + actions.length + " drawing actions from database");
             
             // Process each action
-            int count = 0;
             for (String action : actions) {
                 try {
                     // Skip empty lines
