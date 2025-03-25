@@ -228,6 +228,7 @@ public class WhiteboardClient {
                                 // Extract the follower list part
                                 String followerListPart = message.substring("SERVER_FOLLOWER_LIST:".length());
                                 updateFollowerList(followerListPart);
+                                System.err.println(followerIps);
                             } else if (message.equals("SERVER_LEADERSHIP_CHANGE")) {
                                 chatPanel.receiveMessage("*** Server leadership has changed ***");
                             } else {
@@ -451,7 +452,6 @@ public class WhiteboardClient {
     private void updateFollowerList(String followerListString) {
         // Clear the current follower list
         followerIps.clear();
-        
         // Parse the new list (format: "ip1 * ip2 * ip3")
         if (followerListString != null && !followerListString.isEmpty()) {
             String[] ips = followerListString.split("\\s*\\*\\s*");
