@@ -455,7 +455,7 @@ public class WhiteboardClient {
                     logNetwork("Opening socket connection to " + serverIp + ":12345 (timeout: 5000ms)");
                     newSocket = new Socket();
                     newSocket.connect(new java.net.InetSocketAddress(serverIp, 12345), 5000);
-                    newSocket.setSoTimeout(10000);
+                    // newSocket.setSoTimeout(10000);
                     logNetwork("Socket connection established to " + serverIp);
                 } catch (IOException e) {
                     logError("Failed to connect to " + serverIp, e);
