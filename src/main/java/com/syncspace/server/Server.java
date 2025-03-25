@@ -1011,6 +1011,7 @@ public class Server {
             logMessage("Processing " + actions.length + " drawing actions from database");
             
             // Process each action
+            int count = 0;
             for (String action : actions) {
                 try {
                     // Skip empty lines
@@ -1033,7 +1034,8 @@ public class Server {
                     Message.MessageType messageType = null;
                     if (typeStr.equals("DRAW")) {
                         messageType = Message.MessageType.DRAW;
-                    } else if (typeStr.equals("CLEAR")) {
+                    } 
+                    else if (typeStr.equals("CLEAR")) {
                         messageType = Message.MessageType.CLEAR;
                         
                         // If this is a clear command, we should remove previous draw actions
@@ -1041,8 +1043,7 @@ public class Server {
                             drawingHistory.removeIf(m -> m.getType() == Message.MessageType.DRAW);
                         }
                     } else {
-                        logMessage("Unknown drawing action type: " + typeStr);
-                        continue;
+                        messageType = Message.MessageType.DRAW;
                     }
                     
                     // Extract user ID from content if it contains a semicolon
@@ -1056,7 +1057,7 @@ public class Server {
                     }
                     
                     // Create message and add to history
-                    Message msg = new Message(messageType, content, senderId);
+                    Message msg = new Message(messageType, typeStr + ":" + content, senderId);
                     drawingHistory.add(msg);
                     logMessage(msg.toString());
                     
