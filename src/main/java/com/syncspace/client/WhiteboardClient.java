@@ -371,7 +371,7 @@ public class WhiteboardClient {
             logNetwork("Connecting to new leader at " + newLeaderIp + ":12345");
             socket = new Socket();
             socket.connect(new java.net.InetSocketAddress(newLeaderIp, 12345), 5000);
-            socket.setSoTimeout(10000);
+            // socket.setSoTimeout(10000);
             logNetwork("Socket connection established to new leader");
             
             // Set up streams
