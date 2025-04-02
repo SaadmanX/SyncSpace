@@ -422,7 +422,7 @@ public class Server {
                     cancelLeaderConnectTask();
                     return;
                 }
-                
+                logMessage("DEBUG::::Follower Ips before attempting: " + followerIps);
                 logMessage("Attempting to connect to leader at " + leaderIp + ":" + SERVER_PORT +
                            " (Attempt " + (attemptCount + 1) + "/" + MAX_RECONNECT_ATTEMPTS + ")");
                 
@@ -573,6 +573,8 @@ public class Server {
      * Transitions to follower mode with a new leader.
      */
     private synchronized void followNewLeader(String newLeaderIp) {
+        logMessage("DEBUG::::follower Ips after becoming a follower to new leader: " + followerIps);
+
         actingAsLeader.set(false);
         this.leaderIp = newLeaderIp;
         connectToLeader();
@@ -586,6 +588,9 @@ public class Server {
             logMessage("Already in leader mode, no transition needed");
             return;
         }
+
+        logMessage("DEBUG::::Follower Ips after becoming a new leader: " + followerIps);
+
         
         logMessage("TRANSITIONING TO LEADER MODE");
         
