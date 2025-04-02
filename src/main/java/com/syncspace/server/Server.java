@@ -120,8 +120,8 @@ public class Server {
         
         // Initialize server based on role
         if (isLeader()) {
-            startServerToServerListener();
             startDBConn();
+            startServerToServerListener();
             startClientListener();
         } else {
             connectToLeader();
@@ -403,12 +403,13 @@ public class Server {
     private void connectToLeader() {
         // If already leader or a connection attempt is in progress, return.
         if (isLeader()) return;
+        followerIps.clear();
+
         synchronized (connectLock) {
             if (connectingToLeader) return;
             connectingToLeader = true;
         }
         
-        followerIps.clear();
         
         // Schedule a repeated connection attempt
         leaderConnectFuture = scheduledTaskExecutor.scheduleWithFixedDelay(new Runnable() {
@@ -605,8 +606,8 @@ public class Server {
             client.sendMessage("NEW_LEADER_IP" + serverIp);
         }
         
-        startServerToServerListener();
         startDBConn();
+        startServerToServerListener();
         startClientListener();
         
         logMessage("Successfully transitioned to leader mode");
