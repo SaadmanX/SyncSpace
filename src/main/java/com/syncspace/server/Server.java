@@ -1094,7 +1094,7 @@ public class Server {
                             drawingHistory.removeIf(m -> m.getType() == Message.MessageType.DRAW);
                         }
                     } else {
-                        messageType = Message.MessageType.DRAW;
+                        messageType = Message.MessageType.TEXT;
                     }
                     
                     // Extract user ID from content if it contains a semicolon
