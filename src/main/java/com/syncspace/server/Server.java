@@ -415,6 +415,8 @@ public class Server {
         
         
         // Schedule a repeated connection attempt
+        logMessage("DEBUG:::::Before leader connect future thread");
+        
         leaderConnectFuture = scheduledTaskExecutor.scheduleWithFixedDelay(new Runnable() {
             private int attemptCount = 0;
             
@@ -422,6 +424,7 @@ public class Server {
             public void run() {
                 // If we're already a leader, cancel further attempts.
                 if (isLeader()) {
+                    logMessage("DEBUG:::::is leader -> cancel leader connection task");
                     cancelLeaderConnectTask();
                     return;
                 }
