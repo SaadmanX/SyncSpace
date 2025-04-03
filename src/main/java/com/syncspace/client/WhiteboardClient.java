@@ -327,6 +327,9 @@ public class WhiteboardClient {
                                     logNetwork("Already connected to the new leader server");
                                 }
                             } else if (message.startsWith("ALLDRAW:")) {
+                                System.out.println("-----------------ALLDRAW--------------------");
+                                System.out.println(message);
+                                System.out.println("000000000000000000000000000000000000000");
                                 logNetwork("Received drawing history with " + message.split("\n").length + " lines");
                                 chatPanel.receiveMessage("Received drawing history from server");
                                 String[] drawActions = message.substring("ALLDRAW:".length()).split("\n");
