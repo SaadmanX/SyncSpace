@@ -104,7 +104,7 @@ public class Database {
                         System.out.println("Received drawing action: " + msg.getContent());
                         
                         // Store message in the database file
-                        appendToDatabase(msg.getContent());
+                        appendToDatabase(msg.getContent() + ":" + msg.getTimestamp());
                     } else if (message instanceof String) {
                         String strMsg = (String) message;
                         System.out.println("Received string message: " + strMsg);

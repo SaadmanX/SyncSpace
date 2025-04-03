@@ -1240,7 +1240,7 @@ public class Server {
                     
                     // Parse the action format - expected format is "TYPE:DATA;USER"
                     // For example: "DRAW:START:100,200;user123" or "CLEAR:CLEAR_ALL;SERVER"
-                    String[] parts = action.split(":", 2);
+                    String[] parts = action.split(":");
                     if (parts.length < 2) {
                         logMessage("Invalid drawing action format: " + action);
                         continue;
@@ -1248,7 +1248,7 @@ public class Server {
                     
                     String typeStr = parts[0].trim();
                     String content = parts[1].trim();
-                    
+                    String time = parts[2].trim();
                     // Determine the message type
                     Message.MessageType messageType = null;
                     if (typeStr.equals("DRAW") || typeStr.equals("START") || typeStr.equals("END") ) {
@@ -1276,7 +1276,7 @@ public class Server {
                     }
                     
                     // Create message and add to history
-                    Message msg = new Message(messageType, typeStr + ":" + content, senderId);
+                    Message msg = new Message(messageType, typeStr + ":" + content, senderId, Long.parseLong(time));
                     drawingHistory.add(msg);
                     logMessage(msg.toString());
                     
