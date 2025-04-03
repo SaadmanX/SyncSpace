@@ -18,3 +18,4 @@ com/syncspace/server/Server.class
 com/syncspace/server/Server$1.class
 com/syncspace/client/ui/WhiteboardPanel.class
 com/syncspace/common/Message$MessageType.class
+com/syncspace/client/WhiteboardClient$4.class

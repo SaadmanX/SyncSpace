@@ -13,6 +13,8 @@ import java.io.ObjectOutputStream;
 import java.net.Socket;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.List;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.ArrayList;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -28,6 +30,9 @@ public class WhiteboardClient {
     private final List<String> followerIps = new CopyOnWriteArrayList<>();
     private final List<String> knownServerIps = new CopyOnWriteArrayList<>();
     private final SimpleDateFormat logDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
+    
+    private long timeOffset = 0; // Client's time offset from server time
+    private final long TIME_SYNC_INTERVAL = 60000; // Sync time every minute
 
     /**
      * Log a message to the terminal with timestamp and category
@@ -215,7 +220,13 @@ public class WhiteboardClient {
     private void sendMessage(String message, int count) {
         try {
             logNetwork("Sending text message: " + message);
-            outputStream.writeObject(new Message(Message.MessageType.TEXT, "TEXT:" + message + ";" + username, username));
+            long timestamp = getSynchronizedTime();
+            
+            Message msgObj = new Message(Message.MessageType.TEXT, 
+                "TEXT:" + message + ";" + username, username);
+            msgObj.setTimestamp(timestamp);
+            
+            outputStream.writeObject(msgObj);
             outputStream.flush();
             chatPanel.receiveMessage("You: " + message);
         } catch (IOException e) {
@@ -239,7 +250,10 @@ public class WhiteboardClient {
     private void sendDrawAction(String drawData, int count) {
         try {
             logDrawing("Sending draw action: " + drawData);
-            outputStream.writeObject(new Message(Message.MessageType.DRAW, drawData + ";" + username, username));
+            long timestamp = getSynchronizedTime();
+            Message drawObj = new Message(Message.MessageType.DRAW, drawData + ";" + username, username);
+            drawObj.setTimestamp(timestamp);
+            outputStream.writeObject(drawObj);
             outputStream.flush();
         } catch (IOException e) {
             logError("Failed to send draw action: " + drawData, e);
@@ -262,7 +276,12 @@ public class WhiteboardClient {
     private void sendClearAction(int count) {
         try {
             logDrawing("Sending clear canvas action");
-            outputStream.writeObject(new Message(Message.MessageType.CLEAR, "CLEAR_ALL", username));
+            long timestamp = getSynchronizedTime();
+        
+            Message msgObj = new Message(Message.MessageType.CLEAR, "CLEAR_ALL", username);
+            msgObj.setTimestamp(timestamp);
+            
+            outputStream.writeObject(msgObj);            
             outputStream.flush();
         } catch (IOException e) {
             logError("Failed to send clear action", e);
@@ -669,6 +688,7 @@ public class WhiteboardClient {
             
             // Start listening for messages after registration
             startListeningForMessages();
+            startTimeSynchronization();
         } catch (IOException e) {
             logError("Error registering user", e);
             showError("Error registering user: " + e.getMessage());
@@ -715,6 +735,66 @@ public class WhiteboardClient {
 
         updateFollowerListUI();
     }
+
+    //
+        // Add these methods to WhiteboardClient class
+    private void startTimeSynchronization() {
+        // Schedule periodic time synchronization
+        Timer timer = new Timer(true);
+        timer.schedule(new TimerTask() {
+            @Override
+            public void run() {
+                synchronizeTime();
+            }
+        }, 5000, TIME_SYNC_INTERVAL); // Start after 5s, repeat every minute
+        
+        // Perform initial synchronization
+        synchronizeTime();
+    }
+
+    private void synchronizeTime() {
+        try {
+            logNetwork("Initiating time synchronization with server");
+            long localTimeSent = System.currentTimeMillis();
+            
+            // Request time from server
+            outputStream.writeObject("TIME_SYNC_REQUEST:" + localTimeSent);
+            outputStream.flush();
+        } catch (IOException e) {
+            logError("Failed to initiate time synchronization", e);
+        }
+    }
+
+    // Returns the synchronized timestamp for events
+    private long getSynchronizedTime() {
+        return System.currentTimeMillis() + timeOffset;
+    }
+
+    // Handle the time sync response from server
+    private void handleTimeSyncResponse(String serverResponse) {
+        try {
+            // Expected format: "TIME_SYNC_RESPONSE:serverTime:clientRequestTime"
+            String[] parts = serverResponse.split(":", 3);
+            if (parts.length == 3) {
+                long serverTime = Long.parseLong(parts[1]);
+                long requestTime = Long.parseLong(parts[2]);
+                long roundTripTime = System.currentTimeMillis() - requestTime;
+                long oneWayDelay = roundTripTime / 2; // Estimated network delay
+                
+                // Calculate offset: server time + one-way delay - current time
+                long newOffset = serverTime + oneWayDelay - System.currentTimeMillis();
+                
+                // Update with some smoothing to avoid jumps
+                timeOffset = (timeOffset == 0) ? newOffset : (timeOffset * 3 + newOffset) / 4;
+                
+                logNetwork("Time synchronized. Offset: " + timeOffset + "ms, Round-trip time: " + roundTripTime + "ms");
+            }
+        } catch (Exception e) {
+            logError("Failed to process time synchronization response", e);
+        }
+    }
+
+    //
     
     public static void main(String[] args) {
         System.out.println("[" + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS").format(new Date()) + "] [INIT] SyncSpace client starting up");

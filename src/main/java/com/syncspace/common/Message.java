@@ -2,7 +2,7 @@ package com.syncspace.common;
 
 import java.io.Serializable;
 
-public class Message implements Serializable {
+public class Message implements Serializable, Comparable<Message> {
     private static final long serialVersionUID = 1L;
 
     public enum MessageType {
@@ -40,6 +40,17 @@ public class Message implements Serializable {
 
     public long getTimestamp() {
         return timestamp;
+    }
+
+    @Override
+    public int compareTo(Message other) {
+        // Sort by timestamp
+        return Long.compare(this.timestamp, other.timestamp);
+    }
+    
+    // Add explicit setter for timestamp
+    public void setTimestamp(long timestamp) {
+        this.timestamp = timestamp;
     }
 
     @Override

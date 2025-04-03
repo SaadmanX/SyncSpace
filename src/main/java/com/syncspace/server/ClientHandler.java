@@ -37,6 +37,14 @@ public class ClientHandler extends Thread {
             while (true) {
                 try {
                     Object input = inputStream.readObject();
+
+                    if (input instanceof String) {
+                        String strMsg = (String) input;
+                        if (strMsg.startsWith("TIME_SYNC_REQUEST:")){
+                            server.handleTimeSync(this, strMsg);
+                        }
+                    }
+
                     if (input instanceof Message) {
                         handleMessage((Message) input);
                     }

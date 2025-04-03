@@ -10,8 +10,10 @@ import java.net.Socket;
 import java.net.UnknownHostException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
+import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
@@ -54,7 +56,7 @@ public class Server {
     private final List<ServerConnection> serverConnections = new CopyOnWriteArrayList<>();
     private ServerConnection dbConn;
     private final List<String> followerIps = new CopyOnWriteArrayList<>();
-    private final BlockingQueue<ConnectionMessage> messageQueue = new LinkedBlockingQueue<>(1000);
+    private final PriorityBlockingQueue<ConnectionMessage> messageQueue = new PriorityBlockingQueue<>();
     
     // Server sockets
     private ServerSocket clientServerSocket;
@@ -71,6 +73,11 @@ public class Server {
     // Drawing state
     private final List<Message> drawingHistory = new CopyOnWriteArrayList<>();
     private final List<Message> textHistory = new CopyOnWriteArrayList<>();
+
+    // for sync
+    private final Object timeLock = new Object();
+    private long lastTimeRequest = 0;
+    private final long MIN_TIME_REQUEST_INTERVAL = 1000; // Limit frequent requests
     
     /**
      * Message container for the connection processing queue.
@@ -127,6 +134,33 @@ public class Server {
             startClientListener();
         } else {
             connectToLeader();
+        }
+    }
+
+
+
+    // time sync function
+    public void handleTimeSync(ClientHandler client, String requestStr) {
+        synchronized (timeLock) {
+            long now = System.currentTimeMillis();
+            
+            // Rate limiting - don't allow too frequent requests
+            if (now - lastTimeRequest < MIN_TIME_REQUEST_INTERVAL) {
+                return;
+            }
+            lastTimeRequest = now;
+            
+            try {
+                // Extract client timestamp
+                String clientTimeStr = requestStr.split(":", 2)[1];
+                long clientTime = Long.parseLong(clientTimeStr);
+                
+                // Send back server time and original client time
+                String response = "TIME_SYNC_RESPONSE:" + now + ":" + clientTime;
+                client.sendMessage(response);
+            } catch (Exception e) {
+                logMessage("Error handling time sync request: " + e.getMessage());
+            }
         }
     }
 
@@ -257,6 +291,45 @@ public class Server {
         logMessage("Connection reader thread terminated");
     }
         
+    // NEW SHIT HERE
+    // Add this method to process the queue
+    private void processSortedMessages() {
+        while (!messageQueue.isEmpty()) {
+            ConnectionMessage msg = messageQueue.poll();
+            // Process the message in timestamp order
+            broadcastToAll(msg, null);
+        }
+    }
+
+    // Add messages to the queue
+    public void queueMessage(ConnectionMessage message) {
+        messageQueue.add(message);
+        // If queue reaches certain size or after a time interval, process the queue
+        if (messageQueue.size() > 10) {
+            processSortedMessages();
+        }
+    }
+
+    // new 
+    // In Server.java, add a method to handle time-ordered messages from the queue
+    public synchronized void broadcastOrderedMessages() {
+        if (!isLeader()) return;
+        
+        List<Message> messageBuffer = new ArrayList<>(drawingHistory);
+        Collections.sort(messageBuffer); // Sort by timestamp
+        
+        // Clear history and add back in sorted order
+        drawingHistory.clear();
+        for (Message msg : messageBuffer) {
+            drawingHistory.add(msg);
+            // Broadcast to all clients in correct order
+            for (ClientHandler client : connectedClients) {
+                client.sendMessage(msg);
+            }
+        }
+    }
+
+    //
     /**
      * Main loop for processing queued messages.
      * Dequeues and handles messages from the message queue.
@@ -265,7 +338,7 @@ public class Server {
         while (running && !Thread.currentThread().isInterrupted()) {
             try {
                 // Block until a message is available or timeout
-                ConnectionMessage msg = messageQueue.poll(500, TimeUnit.MILLISECONDS);
+                ConnectionMessage msg = messageQueue.poll();
 
                 if (msg != null) {
                     // Process the message
@@ -275,11 +348,10 @@ public class Server {
                         logMessage("Error handling message: " + e.getMessage());
                     }
                 }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
             } catch (Exception e) {
                 logMessage("Error in message handler: " + e.getMessage());
+                Thread.currentThread().interrupt();
+                break;
             }
         }
         logMessage("Message handler thread terminated");
