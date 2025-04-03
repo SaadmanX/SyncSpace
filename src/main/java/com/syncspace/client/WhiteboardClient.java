@@ -290,7 +290,6 @@ public class WhiteboardClient {
                     try {
                         Object input = inputStream.readObject();
                         if (input instanceof Message) {
-                            System.out.println(input);
                             Message msg = (Message) input;
                             logNetwork("Received message: type=" + msg.getType() + ", sender=" + msg.getSenderId());
                             handleMessage(msg);
@@ -330,6 +329,13 @@ public class WhiteboardClient {
                             } else if (message.startsWith("ALLDRAW:")) {
                                 logNetwork("Received drawing history with " + message.split("\n").length + " lines");
                                 chatPanel.receiveMessage("Received drawing history from server");
+                                String[] drawActions = message.substring("ALLDRAW:".length()).split("\n");
+                                for (String act: drawActions) {
+                                    Object act1 = (Object) act;
+                                    if (act1 instanceof Message) {
+                                        handleMessage((Message) act1);
+                                    }
+                                }
                             } else {
                                 // Handle regular string messages
                                 logNetwork("Received chat or system message: " + message);
