@@ -689,13 +689,13 @@ public class Server {
         if (message instanceof Message) {
             Message msg = (Message) message;
             if (msg.getType() == Message.MessageType.DRAW || 
-                msg.getType() == Message.MessageType.CLEAR) {
+                msg.getType() == Message.MessageType.CLEAR || msg.getType() == Message.MessageType.TEXT) {
                 drawingHistory.add(msg);
                 
                 // If CLEAR message, remove all previous drawing actions
-                if (msg.getType() == Message.MessageType.CLEAR) {
-                    drawingHistory.removeIf(m -> m.getType() == Message.MessageType.DRAW);
-                }
+                // if (msg.getType() == Message.MessageType.CLEAR) {
+                //     drawingHistory.removeIf(m -> m.getType() == Message.MessageType.DRAW);
+                // }
                 dbConn.sendMessage(msg);
                 
                 // If leader, replicate drawing history to followers
