@@ -402,13 +402,16 @@ public class Server {
      */
     private void connectToLeader() {
         // If already leader or a connection attempt is in progress, return.
+
         if (isLeader()) return;
         followerIps.clear();
-
+        logMessage("DEBUG:::::Before synchronized connection to leader");
         synchronized (connectLock) {
+            logMessage("DEBUG:::::In synchronized connection to leader before IF");
             if (connectingToLeader) return;
             connectingToLeader = true;
         }
+        logMessage("DEBUG:::::After (outside) synchronized connection to leader");
         
         
         // Schedule a repeated connection attempt
