@@ -13,8 +13,8 @@ public class WhiteboardPanel extends JPanel {
     private Graphics2D g2d;
     // Map to track drawing points per user
     private Map<String, List<Point>> userPoints;
-    private String currentDrawingUser = "";
-    private boolean isDrawing = false;
+    // Map to track which users are currently drawing
+    private Map<String, Boolean> activeDrawers;
     private Color currentColor = Color.BLACK;
     private int strokeSize = 2;
     // Map to assign different colors to different users
@@ -34,6 +34,7 @@ public class WhiteboardPanel extends JPanel {
         this.g2d.setStroke(new BasicStroke(strokeSize, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
         this.userPoints = new HashMap<>();
         this.userColors = new HashMap<>();
+        this.activeDrawers = new HashMap<>();
         this.setBackground(Color.WHITE);
         
         // Initialize with white background
@@ -43,8 +44,8 @@ public class WhiteboardPanel extends JPanel {
     }
 
     public void startDrawing(Point point, String userId) {
-        isDrawing = true;
-        currentDrawingUser = userId;
+        // Set this user as actively drawing
+        activeDrawers.put(userId, true);
         
         // Assign color to user if not already assigned
         if (!userColors.containsKey(userId)) {
@@ -59,7 +60,8 @@ public class WhiteboardPanel extends JPanel {
     }
 
     public void continueDraw(Point point, String userId) {
-        if (isDrawing && userId.equals(currentDrawingUser)) {
+        // Check if this user is actively drawing
+        if (activeDrawers.getOrDefault(userId, false)) {
             List<Point> points = userPoints.get(userId);
             if (points != null) {
                 points.add(point);
@@ -70,11 +72,9 @@ public class WhiteboardPanel extends JPanel {
     }
 
     public void endDrawing(String userId) {
-        if (userId.equals(currentDrawingUser)) {
-            isDrawing = false;
-            currentDrawingUser = "";
-            // Keep the points for the finished stroke
-        }
+        // Mark this user as no longer drawing
+        activeDrawers.put(userId, false);
+        // Keep the points for the finished stroke
     }
 
     private void drawLine(Point point, String userId) {
@@ -104,8 +104,7 @@ public class WhiteboardPanel extends JPanel {
         g2d.fillRect(0, 0, canvas.getWidth(), canvas.getHeight());
         g2d.setColor(currentColor);
         userPoints.clear();
-        currentDrawingUser = "";
-        isDrawing = false;
+        activeDrawers.clear();
         repaint();
     }
 
