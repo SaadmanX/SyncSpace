@@ -566,6 +566,7 @@ public class WhiteboardClient {
     }
 
     private void handleMessage(Message message) {
+        System.out.println(message.toString());
         SwingUtilities.invokeLater(() -> {
             switch (message.getType()) {
                 case TEXT:
