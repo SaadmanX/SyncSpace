@@ -290,6 +290,7 @@ public class WhiteboardClient {
                     try {
                         Object input = inputStream.readObject();
                         if (input instanceof Message) {
+                            System.out.println(input);
                             Message msg = (Message) input;
                             logNetwork("Received message: type=" + msg.getType() + ", sender=" + msg.getSenderId());
                             handleMessage(msg);
@@ -563,6 +564,7 @@ public class WhiteboardClient {
             switch (message.getType()) {
                 case TEXT:
                     logInfo("Received text message from " + message.getSenderId() + ": " + message.getContent());
+                    logInfo(message.toString());
                     chatPanel.receiveMessage(message.getSenderId() + ": " + message.getContent());
                     break;
                 case DRAW:
