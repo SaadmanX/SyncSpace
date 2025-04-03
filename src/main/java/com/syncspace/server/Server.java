@@ -581,6 +581,12 @@ public class Server {
      */
     private synchronized void followNewLeader(String newLeaderIp) {
         logMessage("DEBUG::::follower Ips after becoming a follower to new leader: " + followerIps);
+        for (ServerConnection conn : new ArrayList<>(serverConnections)) {
+            conn.close();
+        }
+        serverConnections.clear();
+        followerIps.clear();
+        logMessage("Removed self from follower list: " + serverIp);
 
         actingAsLeader.set(false);
         this.leaderIp = newLeaderIp;
