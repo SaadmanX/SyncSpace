@@ -9,7 +9,7 @@ import java.net.Socket;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class Database {
-    private static final String DATABASE_FILE = "/home/csusers/smitkumar.saraiya/Desktop/CPSC 559/SyncSpace/database_log.txt";
+    private static final String DATABASE_FILE = "database_log.txt";
     private static final int PORT = 1500;
     private static final AtomicBoolean running = new AtomicBoolean(true);
     private static ServerSocket serverSocket;
