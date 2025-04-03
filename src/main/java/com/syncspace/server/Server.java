@@ -1082,7 +1082,7 @@ public class Server {
                     
                     // Determine the message type
                     Message.MessageType messageType = null;
-                    if (typeStr.equals("DRAW")) {
+                    if (typeStr.equals("DRAW") || typeStr.equals("START") || typeStr.equals("END") ) {
                         messageType = Message.MessageType.DRAW;
                     } 
                     else if (typeStr.equals("CLEAR")) {

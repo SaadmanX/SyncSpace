@@ -1,10 +1,10 @@
-/Users/saadman/Documents/Saadman Files/Winter_2025/DS/project/SyncSpace/src/main/java/com/syncspace/server/Server.java
-/Users/saadman/Documents/Saadman Files/Winter_2025/DS/project/SyncSpace/src/main/java/com/syncspace/client/WhiteboardClient.java
-/Users/saadman/Documents/Saadman Files/Winter_2025/DS/project/SyncSpace/src/main/java/com/syncspace/server/UserManager.java
-/Users/saadman/Documents/Saadman Files/Winter_2025/DS/project/SyncSpace/src/main/java/com/syncspace/common/WhiteboardAction.java
-/Users/saadman/Documents/Saadman Files/Winter_2025/DS/project/SyncSpace/src/main/java/com/syncspace/server/Database.java
-/Users/saadman/Documents/Saadman Files/Winter_2025/DS/project/SyncSpace/src/main/java/com/syncspace/client/ui/WhiteboardPanel.java
-/Users/saadman/Documents/Saadman Files/Winter_2025/DS/project/SyncSpace/src/main/java/com/syncspace/common/User.java
-/Users/saadman/Documents/Saadman Files/Winter_2025/DS/project/SyncSpace/src/main/java/com/syncspace/client/ui/ChatPanel.java
-/Users/saadman/Documents/Saadman Files/Winter_2025/DS/project/SyncSpace/src/main/java/com/syncspace/server/ClientHandler.java
-/Users/saadman/Documents/Saadman Files/Winter_2025/DS/project/SyncSpace/src/main/java/com/syncspace/common/Message.java
+/Users/smitster1403/Desktop/559/SyncSpace/src/main/java/com/syncspace/server/Database.java
+/Users/smitster1403/Desktop/559/SyncSpace/src/main/java/com/syncspace/server/Server.java
+/Users/smitster1403/Desktop/559/SyncSpace/src/main/java/com/syncspace/server/ClientHandler.java
+/Users/smitster1403/Desktop/559/SyncSpace/src/main/java/com/syncspace/client/WhiteboardClient.java
+/Users/smitster1403/Desktop/559/SyncSpace/src/main/java/com/syncspace/client/ui/WhiteboardPanel.java
+/Users/smitster1403/Desktop/559/SyncSpace/src/main/java/com/syncspace/common/User.java
+/Users/smitster1403/Desktop/559/SyncSpace/src/main/java/com/syncspace/server/UserManager.java
+/Users/smitster1403/Desktop/559/SyncSpace/src/main/java/com/syncspace/common/WhiteboardAction.java
+/Users/smitster1403/Desktop/559/SyncSpace/src/main/java/com/syncspace/common/Message.java
+/Users/smitster1403/Desktop/559/SyncSpace/src/main/java/com/syncspace/client/ui/ChatPanel.java
