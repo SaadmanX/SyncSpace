@@ -575,7 +575,7 @@ public class WhiteboardClient {
                 case TEXT:
                     logInfo("Received text message from " + message.getSenderId() + ": " + message.getContent());
                     logInfo(message.toString());
-                    chatPanel.receiveMessage(message.getSenderId() + ": " + message.getContent());
+                    chatPanel.receiveMessage(message.getSenderId() + ": " + message.getContent().substring("TEXT:".length(), message.getContent().lastIndexOf(";")));
                     break;
                 case DRAW:
                     logDrawing("Received draw message: " + message.getContent());
