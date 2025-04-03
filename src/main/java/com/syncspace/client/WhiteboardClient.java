@@ -233,7 +233,7 @@ public class WhiteboardClient {
                 } else {
                     logNetwork("Will retry sending message in 7 seconds (attempt " + (count+1) + "/4)");
                 }
-                wait(7000);
+                wait(2000);
                 sendMessage(message, count + 1);
             } catch (InterruptedException e1) {
                 logError("Retry interrupted", e1);
@@ -265,7 +265,7 @@ public class WhiteboardClient {
                 } else {
                     logNetwork("Will retry sending draw action in 7 seconds (attempt " + (count+1) + "/4)");
                 }
-                wait(7000);
+                wait(2000);
                 sendDrawAction(drawData, count + 1);
             } catch (InterruptedException e1) {
                 logError("Retry interrupted", e1);
@@ -289,7 +289,7 @@ public class WhiteboardClient {
                 } else {
                     logNetwork("Will retry sending clear action in 7 seconds (attempt " + (count+1) + "/4)");
                 }
-                wait(7000);
+                wait(2000);
                 sendClearAction(count + 1);
             } catch (InterruptedException e1) {
                 logError("Retry interrupted", e1);
@@ -432,7 +432,7 @@ public class WhiteboardClient {
         logNetwork("Waiting 8 seconds for servers to complete leadership election");
         chatPanel.receiveMessage("Waiting for servers to complete leadership election...");
         try {
-            Thread.sleep(8000);
+            Thread.sleep(2000);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             logError("Wait interrupted during reconnection process", e);
@@ -546,7 +546,7 @@ public class WhiteboardClient {
         logNetwork("All reconnection attempts failed, will retry in 10 seconds");
         chatPanel.receiveMessage("All reconnection attempts failed. Will retry in 10 seconds...");
         try {
-            Thread.sleep(10000);
+            Thread.sleep(2000);
             logNetwork("Retrying reconnection process");
             handleServerDisconnection();
         } catch (InterruptedException e) {
