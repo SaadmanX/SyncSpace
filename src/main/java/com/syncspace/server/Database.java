@@ -163,21 +163,32 @@ public class Database {
         try (java.io.FileReader fr = new java.io.FileReader(DATABASE_FILE);
              java.io.BufferedReader br = new java.io.BufferedReader(fr)) {
             
-            StringBuilder fileContents = new StringBuilder();
+            StringBuilder drawContents = new StringBuilder();
+            StringBuilder textContents = new StringBuilder();
             String line;
             int lineCount = 0;
             
-            fileContents.append("ALLDRAW:");
+            // drawContents.append("ALLDRAW:");
             while ((line = br.readLine()) != null) {
-                fileContents.append(line).append("\n");
+                // fileContents.append(line).append("\n");
+                if(line.contains("TEXT:")){
+                    textContents.append(line+("\n"));
+                }else if(line.contains("CLEAR")){
+                    drawContents = new StringBuilder();
+                }else{
+                    drawContents.append(line+"\n");
+                }
                 lineCount++;
             }
+
+            StringBuilder filecontents = textContents.append(drawContents);
             
             // Send the content to the client
-            System.out.println("Sending drawing history with " + lineCount + " actions to client");
-            outStream.writeObject(fileContents.toString());
+            System.out.println("Sending channel history with " + lineCount + " actions to client");
+            outStream.writeObject(filecontents.toString());
             outStream.flush();
-            System.out.println("Drawing history sent successfully");
+            System.out.println("Channel history sent successfully");
+           
             
         } catch (IOException e) {
             System.err.println("Error reading from database file: " + e.getMessage());

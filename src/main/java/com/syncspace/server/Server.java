@@ -22,6 +22,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import com.syncspace.common.Message;
+import com.syncspace.common.Message.MessageType;
 
 /**
  * Server implementation for SyncSpace application.
@@ -69,6 +70,7 @@ public class Server {
 
     // Drawing state
     private final List<Message> drawingHistory = new CopyOnWriteArrayList<>();
+    private final List<Message> textHistory = new CopyOnWriteArrayList<>();
     
     /**
      * Message container for the connection processing queue.
@@ -998,6 +1000,7 @@ public class Server {
                 }
                 else if (stringMessage.startsWith("TEXT")) {
                     // Handle text message - not implemented in this code
+                    handleClientTextMessage(stringMessage);
                 } 
                 else if (stringMessage.startsWith("FOLLOWER_SHUTDOWN:")) {
                     String followerIp = stringMessage.substring("FOLLOWER_SHUTDOWN:".length());
@@ -1115,7 +1118,60 @@ public class Server {
             }
             
             logMessage("Successfully updated drawing history with " + drawingHistory.size() + " actions");
-        }        
+        }   
+
+        private Object deserializeTextMessage(String serialText){
+            
+            try{
+                if (serialText.contains("TEXT:")) {
+                    String[] parts = serialText.split(":", 2);
+                    String type = parts[0];
+                    String content = parts.length > 1 ? parts[1] : "";
+                    String senderId = "SERVER";
+                    
+                    Message.MessageType messageType = null;
+                    if (type.equals("TEXT")) {
+                        messageType = Message.MessageType.TEXT;
+                    }
+                    
+                    if (messageType != null) {
+                        return new Message(messageType, content, senderId);
+                    }
+                }
+            }catch (Exception e){
+                logMessage("Error deserializing: " + e.getMessage());
+            }
+            return null;
+        }
+
+        
+        /*
+         * This handles client text history
+         */
+        private void handleClientTextMessage(String stringMessage){
+            try{
+                String textPart = stringMessage.substring(8);
+                Object textObj = deserializeTextMessage(textPart);
+
+                if(textObj instanceof Message){
+                    Message textMsg = (Message) textObj;
+                    if(textMsg.getType() == MessageType.TEXT){
+                        if(!textHistory.contains(textMsg)){
+                            textHistory.add(textMsg);
+                        }
+
+                        for(ClientHandler client : connectedClients){
+                            client.sendMessage(textMsg);
+                        }
+                    }
+
+                }
+            }catch (Exception e){
+                logMessage("ERROprocessing text messages: "+e.getMessage());
+            }
+        
+        }
+        
         /**
          * Handles drawing replication messages from the leader.
          */
