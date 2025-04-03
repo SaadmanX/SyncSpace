@@ -592,6 +592,7 @@ public class Server {
         actingAsLeader.set(false);
         this.leaderIp = newLeaderIp;
         // connectToLeader();
+        shutdown();
         main(new String[]{newLeaderIp});
     }
 
