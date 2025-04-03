@@ -736,9 +736,7 @@ public class Server {
         
         // Then send all drawing actions
         for (Message drawAction : drawingHistory) {
-            if (drawAction.getType() == Message.MessageType.DRAW) {
-                client.sendMessage(drawAction);
-            }
+            client.sendMessage(drawAction);
         }
     }
     
