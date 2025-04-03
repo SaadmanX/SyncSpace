@@ -121,6 +121,42 @@ public class ClientHandler extends Thread {
                 break;
         }
     }
+
+    // Add this method to handle string messages including time sync
+    public void handleStringMessage(String message) {
+        if (message.startsWith("TIME_SYNC:")) {
+            handleTimeSync(message);
+        } else {
+            // Handle other string messages as needed
+            System.out.println("Received string message: " + message + " from " + username);
+        }
+    }
+
+    private void handleTimeSync(String message) {
+        String[] parts = message.split(":");
+        if (parts.length < 2) return;
+        
+        String command = parts[1];
+        
+        if ("REQUEST".equals(command)) {
+            // Server is requesting our time
+            long clientTime = System.currentTimeMillis();
+            sendMessage("TIME_SYNC:RESPONSE:" + clientTime);
+        } else if ("RESPONSE".equals(command) && parts.length >= 3) {
+            // Client has responded with their time
+            try {
+                long clientTime = Long.parseLong(parts[2]);
+                server.processClientTime(username, clientTime);
+            } catch (NumberFormatException e) {
+                System.err.println("Invalid time format received: " + parts[2]);
+            }
+        } else if ("ADJUST".equals(command) && parts.length >= 3) {
+            // Server tells client to adjust their time
+            // Just forward to client, WhiteboardClient will handle
+            sendMessage(message);
+        }
+    }
+
     
     public void sendMessage(Object message) {
         try {
@@ -133,5 +169,9 @@ public class ClientHandler extends Thread {
     
     private void broadcastToAll(Message message) {
         server.broadcastToAll(message, this);
+    }
+
+    public String getUsername() {
+        return username;
     }
 }

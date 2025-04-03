@@ -28,6 +28,8 @@ public class WhiteboardClient {
     private final List<String> followerIps = new CopyOnWriteArrayList<>();
     private final List<String> knownServerIps = new CopyOnWriteArrayList<>();
     private final SimpleDateFormat logDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
+    private long virtualClockOffset = 0;
+    private long lastSyncTime = 0;
 
     /**
      * Log a message to the terminal with timestamp and category
@@ -239,7 +241,12 @@ public class WhiteboardClient {
     private void sendDrawAction(String drawData, int count) {
         try {
             logDrawing("Sending draw action: " + drawData);
-            outputStream.writeObject(new Message(Message.MessageType.DRAW, drawData + ";" + username, username));
+            long timestamp = getCurrentTime();
+            Message drawMsg = new Message(Message.MessageType.DRAW, 
+                                         drawData + ";" + username + ";time=" + timestamp, 
+                                         username);
+    
+            outputStream.writeObject(drawMsg);
             outputStream.flush();
         } catch (IOException e) {
             logError("Failed to send draw action: " + drawData, e);
@@ -302,6 +309,9 @@ public class WhiteboardClient {
                                 String followerListPart = message.substring("SERVER_FOLLOWER_LIST:".length());
                                 logNetwork("Received follower list update: " + followerListPart);
                                 updateFollowerList(followerListPart);
+                            } else if (message.startsWith("TIME_SYNC:")) {
+                                logNetwork("Received time sync message: " + message);
+                                handleTimeSync(message);
                             } else if (message.equals("SERVER_LEADERSHIP_CHANGE")) {
                                 logNetwork("Server notified of leadership change");
                                 chatPanel.receiveMessage("*** Server leadership has changed ***");
@@ -538,6 +548,38 @@ public class WhiteboardClient {
         }
     }
 
+    // Add this method to handle time synchronization messages
+    private void handleTimeSync(String message) {
+        String[] parts = message.split(":");
+        if (parts.length < 2) return;
+        
+        String command = parts[1];
+        
+        if ("REQUEST".equals(command)) {
+            // Server is requesting our time
+            long clientTime = System.currentTimeMillis() + virtualClockOffset;
+            logNetwork("Sending time to server: " + clientTime);
+            try {
+                outputStream.writeObject("TIME_SYNC:RESPONSE:" + clientTime);
+                outputStream.flush();
+                lastSyncTime = System.currentTimeMillis();
+            } catch (IOException e) {
+                logError("Failed to send time response", e);
+            }
+        } else if ("ADJUST".equals(command) && parts.length >= 3) {
+            try {
+                long adjustment = Long.parseLong(parts[2]);
+                virtualClockOffset += adjustment;
+                logNetwork("Adjusted virtual clock by " + adjustment + 
+                        "ms, total offset: " + virtualClockOffset + "ms");
+                chatPanel.receiveMessage("*** Time synchronized with server, offset: " + 
+                                        virtualClockOffset + "ms ***");
+            } catch (NumberFormatException e) {
+                logError("Invalid time adjustment format: " + parts[2], e);
+            }
+        }
+    }
+
     private void closeExistingConnections() {
         logNetwork("Closing existing connections");
         try {
@@ -606,6 +648,8 @@ public class WhiteboardClient {
         logDrawing("Processing draw action: " + actionData);
         
         try {
+            long timestamp = 0;
+
             // Check if this is a raw drawing command without userId (from history)
             if (!actionData.contains(";")) {
                 // Add a default userId if none is present
@@ -619,6 +663,22 @@ public class WhiteboardClient {
             String action = parts[0];
             String userId = parts.length > 1 ? parts[1] : "unknown";
             
+            for (String part : parts) {
+                if (part.startsWith("time=")) {
+                    try {
+                        timestamp = Long.parseLong(part.substring(5));
+                    } catch (NumberFormatException e) {
+                        logError("Invalid timestamp format: " + part, e);
+                    }
+                }
+            }
+            
+            // Process the drawing action with timestamp information
+            // For simplicity, we'll just log the timestamp but could use it for ordering
+            if (timestamp > 0) {
+                logDrawing("Drawing action from " + userId + " at time " + timestamp);
+            }
+
             if (action.startsWith("START:")) {
                 String coords = action.substring(6);
                 String[] coordParts = coords.split(",");
@@ -715,6 +775,11 @@ public class WhiteboardClient {
 
         updateFollowerListUI();
     }
+
+    private long getCurrentTime() {
+        return System.currentTimeMillis() + virtualClockOffset;
+    }
+    
     
     public static void main(String[] args) {
         System.out.println("[" + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS").format(new Date()) + "] [INIT] SyncSpace client starting up");

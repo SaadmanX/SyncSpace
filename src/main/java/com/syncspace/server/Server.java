@@ -11,12 +11,14 @@ import java.net.UnknownHostException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -54,7 +56,20 @@ public class Server {
     private final List<ServerConnection> serverConnections = new CopyOnWriteArrayList<>();
     private ServerConnection dbConn;
     private final List<String> followerIps = new CopyOnWriteArrayList<>();
-    private final BlockingQueue<ConnectionMessage> messageQueue = new LinkedBlockingQueue<>(1000);
+    private final BlockingQueue<ConnectionMessage> messageQueue = new PriorityBlockingQueue<>(1000, 
+        (msg1, msg2) -> {
+            // Determine message priority
+            int prio1 = getMessagePriority(msg1.message);
+            int prio2 = getMessagePriority(msg2.message);
+            return Integer.compare(prio1, prio2);
+        });
+
+    // Time synchronization 
+    private long virtualClockOffset = 0;
+    private boolean syncInProgress = false;
+    private final Map<String, Long> clientTimes = new HashMap<>();
+    private static final int SYNC_INTERVAL_SECONDS = 60;  // Run sync every minute
+
     
     // Server sockets
     private ServerSocket clientServerSocket;
@@ -122,6 +137,13 @@ public class Server {
         
         // Initialize server based on role
         if (isLeader()) {
+            scheduledTaskExecutor.scheduleAtFixedRate(
+                this::initiateTimeSync, 
+                30, // Initial delay
+                SYNC_INTERVAL_SECONDS, 
+                TimeUnit.SECONDS
+            );
+        
             startDBConn();
             startServerToServerListener();
             startClientListener();
@@ -184,6 +206,116 @@ public class Server {
             return "127.0.0.1";
         }
     }
+
+    /**
+     * Initiates Berkeley's time synchronization
+     */
+    private void initiateTimeSync() {
+        if (syncInProgress || !isLeader()) {
+            return;
+        }
+        
+        syncInProgress = true;
+        clientTimes.clear();
+        
+        // Add server's own time
+        long serverTime = System.currentTimeMillis() + virtualClockOffset;
+        clientTimes.put("SERVER", serverTime);
+        
+        // Request time from all clients
+        logMessage("Initiating time synchronization with " + connectedClients.size() + " clients");
+        for (ClientHandler client : connectedClients) {
+            client.sendMessage("TIME_SYNC:REQUEST");
+        }
+        
+        // Set a timeout to finish sync even if not all clients respond
+        scheduledTaskExecutor.schedule(() -> {
+            if (syncInProgress) {
+                finalizeTimeSync();
+            }
+        }, 5, TimeUnit.SECONDS);
+    }
+
+    /**
+     * Processes time from a client for Berkeley's algorithm
+     */
+    public void processClientTime(String clientId, long clientTime) {
+        if (!syncInProgress) {
+            return;
+        }
+        
+        clientTimes.put(clientId, clientTime);
+        logMessage("Received time from client " + clientId + ": " + clientTime);
+        
+        // If we've heard from all clients, complete the sync
+        if (clientTimes.size() >= connectedClients.size() + 1) { // +1 for server
+            finalizeTimeSync();
+        }
+    }
+
+    /**
+     * Finalizes time synchronization by calculating average and sending adjustments
+     */
+    private void finalizeTimeSync() {
+        if (!syncInProgress) {
+            return;
+        }
+        
+        syncInProgress = false;
+        
+        if (clientTimes.isEmpty()) {
+            logMessage("No client times received, aborting sync");
+            return;
+        }
+        
+        // Calculate average time (Berkeley algorithm)
+        long sum = 0;
+        for (long time : clientTimes.values()) {
+            sum += time;
+        }
+        long averageTime = sum / clientTimes.size();
+        
+        // Calculate offsets and build log message
+        StringBuilder logMsg = new StringBuilder("Time sync results:\n");
+        logMsg.append("Average time: ").append(averageTime).append("\n");
+        
+        for (Map.Entry<String, Long> entry : clientTimes.entrySet()) {
+            String clientId = entry.getKey();
+            long clientTime = entry.getValue();
+            long offset = averageTime - clientTime;
+            
+            logMsg.append(clientId).append(": ")
+                .append(clientTime)
+                .append(", offset: ").append(offset).append("ms\n");
+                
+            // Send adjustment to client
+            if (!clientId.equals("SERVER")) {
+                // Find the client and send adjustment
+                for (ClientHandler client : connectedClients) {
+                    if (client.getUsername().equals(clientId)) {
+                        client.sendMessage("TIME_SYNC:ADJUST:" + offset);
+                        break;
+                    }
+                }
+            }
+        }
+        
+        logMessage(logMsg.toString());
+        
+        // Adjust server's own virtual clock
+        long serverOffset = averageTime - clientTimes.get("SERVER");
+        virtualClockOffset += serverOffset;
+        logMessage("Server virtual clock adjusted by " + serverOffset + "ms, total offset: " + virtualClockOffset + "ms");
+    }
+
+    /**
+     * Gets the current time with any virtual clock adjustments
+     */
+    public long getCurrentTime() {
+        return System.currentTimeMillis() + virtualClockOffset;
+    }
+
+
     
     /**
      * Starts the reader and handler threads for connection processing.
@@ -284,6 +416,32 @@ public class Server {
         }
         logMessage("Message handler thread terminated");
     }
+
+    /**
+     * Determine priority of a message (lower number = higher priority)
+     */
+    private int getMessagePriority(Object message) {
+        // Time sync messages have highest priority
+        if (message instanceof String) {
+            String strMsg = (String) message;
+            if (strMsg.startsWith("TIME_SYNC:")) {
+                return 1;
+            }
+        }
+        
+        // Drawing actions have medium priority
+        if (message instanceof Message) {
+            Message msg = (Message) message;
+            if (msg.getType() == Message.MessageType.DRAW || 
+                msg.getType() == Message.MessageType.CLEAR) {
+                return 2;
+            }
+        }
+        
+        // All other messages have lowest priority
+        return 3;
+    }
+
     
     /**
      * Logs a message with timestamp and server role.
