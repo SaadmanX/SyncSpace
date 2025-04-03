@@ -542,6 +542,7 @@ public class Server {
             }
         }
         logMessage("DEBUG::::::this will return null haha");
+
         return null;
     }
     
@@ -590,7 +591,8 @@ public class Server {
 
         actingAsLeader.set(false);
         this.leaderIp = newLeaderIp;
-        connectToLeader();
+        // connectToLeader();
+        main(new String[]{newLeaderIp});
     }
 
     /**
