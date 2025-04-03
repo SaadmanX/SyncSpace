@@ -999,6 +999,7 @@ public class Server {
                     handleDrawingMessage(stringMessage);
                 }
                 else if (stringMessage.startsWith("TEXT")) {
+                    logMessage("DEBUG:::::" + stringMessage);
                     // Handle text message - not implemented in this code
                     handleClientTextMessage(stringMessage);
                 } 
