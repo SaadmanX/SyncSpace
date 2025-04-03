@@ -215,7 +215,7 @@ public class WhiteboardClient {
     private void sendMessage(String message, int count) {
         try {
             logNetwork("Sending text message: " + message);
-            outputStream.writeObject(new Message(Message.MessageType.TEXT,  message + ";" + username, username));
+            outputStream.writeObject(new Message(Message.MessageType.TEXT, "TEXT:" + message + ";" + username, username));
             outputStream.flush();
             chatPanel.receiveMessage("You: " + message);
         } catch (IOException e) {
