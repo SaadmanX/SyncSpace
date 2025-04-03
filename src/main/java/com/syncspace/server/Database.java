@@ -168,7 +168,7 @@ public class Database {
             String line;
             int lineCount = 0;
             
-            // drawContents.append("ALLDRAW:");
+            drawContents.append("ALLDRAW:");
             while ((line = br.readLine()) != null) {
                 // fileContents.append(line).append("\n");
                 if(line.contains("TEXT:")){
