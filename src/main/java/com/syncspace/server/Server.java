@@ -599,7 +599,7 @@ public class Server {
         }
         serverConnections.clear();
         
-        followerIps.remove(serverIp);
+        followerIps.clear();
         logMessage("Removed self from follower list: " + serverIp);
 
         actingAsLeader.set(true);
