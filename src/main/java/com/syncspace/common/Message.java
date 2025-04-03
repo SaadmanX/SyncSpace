@@ -18,6 +18,13 @@ public class Message implements Serializable {
     private String content;
     private String senderId;
     private long timestamp;
+    
+    public Message(MessageType type, String content, String senderId, long timestamp) {
+        this.type = type;
+        this.content = content;
+        this.senderId = senderId;
+        this.timestamp = timestamp;
+    }
 
     public Message(MessageType type, String content, String senderId) {
         this.type = type;

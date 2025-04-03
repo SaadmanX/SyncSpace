@@ -850,12 +850,10 @@ public class Server {
                 msg.getType() == Message.MessageType.CLEAR || msg.getType() == Message.MessageType.TEXT) {
                 drawingHistory.add(msg);
                 
-                // If CLEAR message, remove all previous drawing actions
-                // if (msg.getType() == Message.MessageType.CLEAR) {
-                //     drawingHistory.removeIf(m -> m.getType() == Message.MessageType.DRAW);
-                // }
-                dbConn.sendMessage(msg);
-                
+                if (dbConn != null) {
+                    dbConn.sendMessage(msg);
+                }
+                    
                 // If leader, replicate drawing history to followers
                 if (isLeader()) {
                     replicateDrawingToFollowers(msg);
@@ -890,14 +888,27 @@ public class Server {
         logMessage("Sending drawing history to new client. History size: " + drawingHistory.size());
         
         // First, send a message to clear any existing content
-        client.sendMessage(new Message(Message.MessageType.CLEAR, "CLEAR_ALL", "SERVER"));
+        client.sendMessage(new Message(Message.MessageType.CLEAR, "CLEAR_ALL", "SERVER", getCurrentTime()));
         
-        // Then send all drawing actions
-        for (Message drawAction : drawingHistory) {
+        // Sort drawing history by sender ID first, then by timestamp
+        List<Message> sortedHistory = new ArrayList<>(drawingHistory);
+        sortedHistory.sort((m1, m2) -> {
+            // First compare by sender ID
+            int senderCompare = m1.getSenderId().compareTo(m2.getSenderId());
+            if (senderCompare != 0) {
+                return senderCompare;
+            }
+            
+            // If same sender, then sort by timestamp
+            return Long.compare(m1.getTimestamp(), m2.getTimestamp());
+        });
+        
+        // Then send all drawing actions with their original timestamps
+        for (Message drawAction : sortedHistory) {
             client.sendMessage(drawAction);
         }
     }
-    
+                
     /**
      * Checks if this server is the leader.
      */
@@ -1456,6 +1467,7 @@ public class Server {
     /**
      * Helper method to deserialize drawing messages.
      */
+    // Update the deserializeDrawingMessage method to use timestamps
     private Object deserializeDrawingMessage(String serializedStr) {
         try {
             // Basic implementation for Message objects
@@ -1473,7 +1485,8 @@ public class Server {
                 }
                 
                 if (messageType != null) {
-                    return new Message(messageType, content, senderId);
+                    // Create message with synchronized server time
+                    return new Message(messageType, content, senderId, getCurrentTime());
                 }
             }
         } catch (Exception e) {

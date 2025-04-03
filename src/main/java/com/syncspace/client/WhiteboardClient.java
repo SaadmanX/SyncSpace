@@ -217,7 +217,11 @@ public class WhiteboardClient {
     private void sendMessage(String message, int count) {
         try {
             logNetwork("Sending text message: " + message);
-            outputStream.writeObject(new Message(Message.MessageType.TEXT, "TEXT:" + message + ";" + username, username));
+            Message msg = new Message(Message.MessageType.TEXT, 
+                                  "TEXT:" + message + ";" + username, 
+                                  username,
+                                  getCurrentTime());
+            outputStream.writeObject(msg);
             outputStream.flush();
             chatPanel.receiveMessage("You: " + message);
         } catch (IOException e) {
@@ -240,14 +244,18 @@ public class WhiteboardClient {
 
     private void sendDrawAction(String drawData, int count) {
         try {
-            logDrawing("Sending draw action: " + drawData);
-            long timestamp = getCurrentTime();
-            Message drawMsg = new Message(Message.MessageType.DRAW, 
-                                         drawData + ";" + username + ";time=" + timestamp, 
-                                         username);
-    
-            outputStream.writeObject(drawMsg);
-            outputStream.flush();
+        logDrawing("Sending draw action: " + drawData);
+        
+        long timestamp = getCurrentTime();
+        
+        // Create message with just the drawing data and username, using timestamp in Message object
+        String messageData = drawData + ";" + username;
+        
+        // Create message with explicitly provided timestamp
+        Message msg = new Message(Message.MessageType.DRAW, messageData, username, timestamp);
+        
+        outputStream.writeObject(msg);
+        outputStream.flush();
         } catch (IOException e) {
             logError("Failed to send draw action: " + drawData, e);
             try {
@@ -269,7 +277,8 @@ public class WhiteboardClient {
     private void sendClearAction(int count) {
         try {
             logDrawing("Sending clear canvas action");
-            outputStream.writeObject(new Message(Message.MessageType.CLEAR, "CLEAR_ALL", username));
+            Message msg = new Message(Message.MessageType.CLEAR, "CLEAR_ALL", username, getCurrentTime());
+            outputStream.writeObject(msg);
             outputStream.flush();
         } catch (IOException e) {
             logError("Failed to send clear action", e);
@@ -288,7 +297,6 @@ public class WhiteboardClient {
             }
         }
     }
-
     private void startListeningForMessages() {
         logInfo("Starting message listener thread");
         new Thread(() -> {
@@ -615,30 +623,44 @@ public class WhiteboardClient {
         SwingUtilities.invokeLater(() -> {
             switch (message.getType()) {
                 case TEXT:
-                    logInfo("Received text message from " + message.getSenderId() + ": " + message.getContent());
-                    logInfo(message.toString());
-                    chatPanel.receiveMessage(message.getSenderId() + ": " + message.getContent().substring("TEXT:".length(), message.getContent().lastIndexOf(";")));
+                    logInfo("Received text message from " + message.getSenderId() + 
+                        ": " + message.getContent() + " (time: " + new Date(message.getTimestamp()) + ")");
+                    
+                    String textContent = message.getContent();
+                    String displayText = textContent;
+                    if (textContent.startsWith("TEXT:")) {
+                        displayText = textContent.substring("TEXT:".length());
+                        if (displayText.contains(";")) {
+                            displayText = displayText.substring(0, displayText.lastIndexOf(";"));
+                        }
+                    }
+                    
+                    chatPanel.receiveMessage(message.getSenderId() + ": " + displayText);
                     break;
                 case DRAW:
-                    logDrawing("Received draw message: " + message.getContent());
+                    logDrawing("Received draw message: " + message.getContent() + 
+                        " (time: " + new Date(message.getTimestamp()) + ")");
                     handleDrawAction(message.getContent());
                     break;
                 case CLEAR:
-                    logDrawing("Received clear canvas command");
+                    logDrawing("Received clear canvas command (time: " + new Date(message.getTimestamp()) + ")");
                     if ("CLEAR_ALL".equals(message.getContent())) {
                         whiteboardPanel.clearCanvas();
                     }
                     break;
                 case USER_JOIN:
-                    logInfo("User joined: " + message.getSenderId());
+                    logInfo("User joined: " + message.getSenderId() + 
+                        " (time: " + new Date(message.getTimestamp()) + ")");
                     chatPanel.receiveMessage("*** " + message.getSenderId() + " has joined ***");
                     break;
                 case USER_LEAVE:
-                    logInfo("User left: " + message.getSenderId());
+                    logInfo("User left: " + message.getSenderId() + 
+                        " (time: " + new Date(message.getTimestamp()) + ")");
                     chatPanel.receiveMessage("*** " + message.getSenderId() + " has left ***");
                     break;
                 default:
-                    logInfo("Received message of unknown type: " + message.getType());
+                    logInfo("Received message of unknown type: " + message.getType() + 
+                        " (time: " + new Date(message.getTimestamp()) + ")");
                     break;
             }
         });
@@ -662,7 +684,7 @@ public class WhiteboardClient {
             
             String action = parts[0];
             String userId = parts.length > 1 ? parts[1] : "unknown";
-            
+
             for (String part : parts) {
                 if (part.startsWith("time=")) {
                     try {
