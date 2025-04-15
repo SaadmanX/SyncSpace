@@ -1196,6 +1196,7 @@ public class Server {
                     logMessage("attempting to remake history");
                     String drawActions = stringMessage.substring("ALLDRAW:".length());
                     updateDrawHistory(drawActions);
+                    logMessage("Updated drawing history -follower");
                 }
                 else if (stringMessage.equals("DB_READY")) {
                     dbConn.sendMessage("SERVER_READY");
