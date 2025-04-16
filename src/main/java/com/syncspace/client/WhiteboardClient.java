@@ -124,34 +124,148 @@ public class WhiteboardClient {
     }
 
     private void initializeUI() {
+        // At the beginning of initializeUI()
+        try {
+            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+            // Or another look and feel:
+            // UIManager.setLookAndFeel("javax.swing.plaf.nimbus.NimbusLookAndFeel");
+        } catch (Exception e) {
+            logError("Failed to set look and feel", e);
+        }
+        
         logInfo("Initializing UI components");
-        frame = new JFrame("SyncSpace");
+        frame = new JFrame("SyncSpace Collaborative Whiteboard");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setSize(1000, 600);
+        frame.setSize(1200, 700); // Larger window size
         frame.setLayout(new BorderLayout());
 
-        // Create toolbar with drawing options
+        // Create a more feature-rich toolbar with drawing options
         JToolBar toolBar = new JToolBar();
+        toolBar.setFloatable(false);
+        
+        // Add clear button with better styling
         JButton clearBtn = new JButton("Clear");
+        clearBtn.setToolTipText("Clear the entire whiteboard");
         clearBtn.addActionListener(e -> {
             logInfo("User clicked Clear button");
             whiteboardPanel.clearCanvas();
             sendClearAction(0);
         });
         toolBar.add(clearBtn);
+        toolBar.addSeparator();
+        
+        // Add color selection buttons
+        toolBar.add(new JLabel("  Colors: "));
+        addColorButton(toolBar, Color.BLACK, "Black");
+        addColorButton(toolBar, Color.RED, "Red");
+        addColorButton(toolBar, Color.BLUE, "Blue");
+        addColorButton(toolBar, Color.GREEN, "Green");
+        addColorButton(toolBar, Color.ORANGE, "Orange");
+        toolBar.addSeparator();
+        
+        // Add brush size options
+        toolBar.add(new JLabel("  Brush Size: "));
+        addStrokeButton(toolBar, 2, "Small");
+        addStrokeButton(toolBar, 5, "Medium"); 
+        addStrokeButton(toolBar, 8, "Large");
+        
         frame.add(toolBar, BorderLayout.NORTH);
 
-        // Create whiteboard panel (main drawing area)
-        whiteboardPanel = new WhiteboardPanel();
-        frame.add(whiteboardPanel, BorderLayout.CENTER);
+        // Add drawing tools panel
+        JPanel toolsPanel = new JPanel(new GridLayout(5, 1));
+        JToggleButton penButton = new JToggleButton("Pen");
+        JToggleButton eraserButton = new JToggleButton("Eraser");
+        JToggleButton lineButton = new JToggleButton("Line");
+        JToggleButton rectButton = new JToggleButton("Rectangle");
+        JToggleButton circleButton = new JToggleButton("Circle");
 
-        // Create chat panel
+        ButtonGroup toolsGroup = new ButtonGroup();
+        toolsGroup.add(penButton);
+        toolsGroup.add(eraserButton);
+        toolsGroup.add(lineButton);
+        toolsGroup.add(rectButton);
+        toolsGroup.add(circleButton);
+
+        toolsPanel.add(penButton);
+        toolsPanel.add(eraserButton);
+        toolsPanel.add(lineButton);
+        toolsPanel.add(rectButton);
+        toolsPanel.add(circleButton);
+
+        frame.add(toolsPanel, BorderLayout.WEST);
+
+        // Create whiteboard panel with a border
+        whiteboardPanel = new WhiteboardPanel();
+        whiteboardPanel.setBorder(BorderFactory.createLoweredBevelBorder());
+
+        // Create chat panel with improved styling
         chatPanel = new ChatPanel();
-        chatPanel.setPreferredSize(new Dimension(250, frame.getHeight()));
-        frame.add(chatPanel, BorderLayout.EAST);
+        chatPanel.setPreferredSize(new Dimension(300, frame.getHeight())); // Wider chat panel
+        chatPanel.setBorder(BorderFactory.createTitledBorder("Chat"));
+
+        // Add split pane
+        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, 
+            new JScrollPane(whiteboardPanel), chatPanel);
+        splitPane.setResizeWeight(0.8); // 80% to whiteboard, 20% to chat
+        frame.add(splitPane, BorderLayout.CENTER);
+        
+        // Add status bar
+        JPanel statusBar = new JPanel(new BorderLayout());
+        statusBar.setBorder(BorderFactory.createLoweredBevelBorder());
+        JLabel statusLabel = new JLabel("  Ready");
+        statusBar.add(statusLabel, BorderLayout.WEST);
+        frame.add(statusBar, BorderLayout.SOUTH);
+
+        // Add menu bar
+        JMenuBar menuBar = new JMenuBar();
+        JMenu fileMenu = new JMenu("File");
+        JMenuItem saveItem = new JMenuItem("Save Whiteboard...");
+        JMenuItem exitItem = new JMenuItem("Exit");
+
+        saveItem.addActionListener(e -> {
+            // Save whiteboard implementation
+            logInfo("Save whiteboard requested");
+        });
+        exitItem.addActionListener(e -> System.exit(0));
+
+        fileMenu.add(saveItem);
+        fileMenu.addSeparator();
+        fileMenu.add(exitItem);
+        menuBar.add(fileMenu);
+
+        JMenu helpMenu = new JMenu("Help");
+        JMenuItem aboutItem = new JMenuItem("About SyncSpace");
+        helpMenu.add(aboutItem);
+        menuBar.add(helpMenu);
+
+        frame.setJMenuBar(menuBar);
 
         frame.setVisible(true);
         logInfo("UI initialization complete");
+    }
+
+    // Helper method to create color buttons
+    private void addColorButton(JToolBar toolBar, Color color, String tooltip) {
+        JButton button = new JButton();
+        button.setBackground(color);
+        button.setPreferredSize(new Dimension(24, 24));
+        button.setToolTipText(tooltip);
+        button.addActionListener(e -> {
+            whiteboardPanel.setColor(color);
+            logInfo("Color changed to " + tooltip);
+        });
+        toolBar.add(button);
+    }
+
+    // Helper method to create stroke size buttons
+    private void addStrokeButton(JToolBar toolBar, int size, String name) {
+        JButton button = new JButton(name);
+        button.setToolTipText(name + " brush");
+        button.addActionListener(e -> {
+            whiteboardPanel.setStrokeSize(size);
+            logInfo("Stroke size changed to " + size);
+        });
+        toolBar.add(button);
     }
 
     private void setupEventHandlers() {
