@@ -832,6 +832,9 @@ public class Server {
     private void replicateDrawingToFollowers(Message drawingMessage) {
         if (!isLeader()) return;
         
+        logMessage("this is what the drawmessage looks like just before leaving the leader");
+        logMessage(drawingMessage.toString());
+        logMessage("should have left+++++++++++++++");
         for (ServerConnection conn : new ArrayList<>(serverConnections)) {
             if (conn.getType() == ServerConnectionType.FOLLOWER) {
                 conn.sendMessage("DRAWING:" + drawingMessage);
@@ -1286,7 +1289,7 @@ public class Server {
                 }
                 else if (stringMessage.startsWith("DRAWING:")) {
                     // Handle drawing replication from leader
-                    String drawingPart = stringMessage.substring(8);
+                    String drawingPart = stringMessage.substring("DRAWING:".length());
                     Object drawObj = deserializeDrawingMessage(drawingPart);
                     if (drawObj instanceof Message) {
                         Message drawMsg = (Message) drawObj;
