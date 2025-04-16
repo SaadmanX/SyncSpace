@@ -1422,153 +1422,192 @@ private void appendToLocalDatabase(Message message) {
         }
 
         /**
-         * Process a full history update from leader
-         * Format: TYPE:CONTENT:TIMESTAMP\n
-         */
-        private void processFullHistory(String historyData) {
-            if (historyData == null || historyData.trim().isEmpty()) {
-                logMessage("Received empty history data");
-                return;
+ * Process a full history update from leader
+ * Format: TYPE:CONTENT:TIMESTAMP\n
+ */
+private void processFullHistory(String historyData) {
+    if (historyData == null || historyData.trim().isEmpty()) {
+        logMessage("Received empty history data");
+        return;
+    }
+    
+    logMessage("Processing history data with " + historyData.split("\n").length + " entries");
+    
+    // Clear existing histories
+    drawingHistory.clear();
+    textHistory.clear();
+    
+    // Clear database file and create a new one
+    synchronized (databaseLock) {
+        try {
+            // Create a new empty database file
+            File dbFile = new File(databaseFile);
+            if (dbFile.exists()) {
+                dbFile.delete();
             }
+            dbFile.createNewFile();
             
-            logMessage("Processing history data with " + historyData.split("\n").length + " entries");
-            
-            // Clear existing histories
-            drawingHistory.clear();
-            textHistory.clear();
-            
-            // Clear database file and create a new one
-            synchronized (databaseLock) {
-                try {
-                    // Create a new empty database file
-                    File dbFile = new File(databaseFile);
-                    if (dbFile.exists()) {
-                        dbFile.delete();
-                    }
-                    dbFile.createNewFile();
-                    
-                    // Write all history to the file
-                    try (FileWriter fw = new FileWriter(databaseFile)) {
-                        fw.write(historyData);
-                    }
-                    
-                    logMessage("History data written to local database");
-                } catch (IOException e) {
-                    logMessage("Error writing history to database: " + e.getMessage());
-                }
-            }
-            
-            // Process each line to rebuild in-memory history
-            String[] lines = historyData.split("\n");
-            for (String line : lines) {
-                try {
-                    if (line.trim().isEmpty()) continue;
-                    
-                    String[] parts = line.split(":");
-                    if (parts.length < 3) {
-                        logMessage("Invalid history line format: " + line);
-                        continue;
-                    }
-                    
-                    String typeStr = parts[0].trim();
-                    String content = parts[2].trim();
-                    long timestamp = Long.parseLong(parts[3].trim());
-                    String senderId = parts.length > 3 ? parts[4].trim() : "SERVER";
-                    
-                    // Create appropriate message type
-                    Message.MessageType messageType;
-                    if (typeStr.equals("DRAW")) {
-                        messageType = Message.MessageType.DRAW;
-                    } else if (typeStr.equals("CLEAR")) {
-                        messageType = Message.MessageType.CLEAR;
-                    } else if (typeStr.equals("TEXT")) {
-                        messageType = Message.MessageType.TEXT;
-                    } else {
-                        continue; // Skip unknown types
-                    }
-                    
-                    Message msg = new Message(messageType, content, senderId, timestamp);
-                    
-                    logMessage("DEBUG::::::::: THIS IS THE MESSSAGE RECEIVED => "+msg.getType()+":"+msg.getContent()+":"+msg.getSenderId()+":"+msg.getTimestamp());
-                    // Add to appropriate history collection
-                    if (messageType == Message.MessageType.TEXT) {
-                        textHistory.add(msg);
-                    } else {
-                        drawingHistory.add(msg);
-                        
-                        // Handle CLEAR messages
-                        if (messageType == Message.MessageType.CLEAR && 
-                            content.contains("CLEAR_ALL")) {
-                            drawingHistory.clear();
-                            drawingHistory.add(msg);
-                        }
-                    }
-                } catch (Exception e) {
-                    logMessage("Error processing history line: " + e.getMessage());
-                }
-            }
-            
-            logMessage("History processing complete. Drawing history: " + drawingHistory.size() + 
-                       " items, Text history: " + textHistory.size() + " items");
+            // Don't write directly to file - we'll process each line and write properly formatted entries
+            logMessage("Created new empty database file");
+        } catch (IOException e) {
+            logMessage("Error preparing database file: " + e.getMessage());
         }
-
-        /**
-         * Handle a replication message from the leader
-         * Format: REPLICATE:TYPE:CONTENT:SENDER_ID:TIMESTAMP
-         */
-        private void handleReplicationMessage(String stringMessage) {
-            logMessage("DEBUG::::: THIS IS THE STRING RECEIVED => "+stringMessage);
+    }
+    
+    // Process each line to rebuild in-memory history
+    String[] lines = historyData.split("\n");
+    for (String line : lines) {
+        try {
+            if (line.trim().isEmpty()) continue;
+            
+            String[] parts = line.split(":");
+            if (parts.length < 3) {
+                logMessage("Invalid history line format: " + line);
+                continue;
+            }
+            
+            String typeStr = parts[0].trim();
+            String content = parts[1].trim();
+            long timestamp;
+            String senderId = "SERVER";
+            
+            // Try to parse timestamp from the correct position
             try {
-                String[] parts = stringMessage.split(":", 5);
-                if (parts.length < 5) {
-                    logMessage("Invalid replication message format: " + stringMessage);
-                    return;
+                timestamp = Long.parseLong(parts[2].trim());
+            } catch (NumberFormatException e) {
+                logMessage("Invalid timestamp format, using current time");
+                timestamp = System.currentTimeMillis();
+            }
+            
+            // Extract sender ID if available (might be in content or in its own field)
+            if (parts.length > 3) {
+                senderId = parts[3].trim();
+            } else if (content.contains(";")) {
+                String[] contentParts = content.split(";", 2);
+                content = contentParts[0];
+                if (contentParts.length > 1) {
+                    senderId = contentParts[1];
                 }
-                
-                String messageType = parts[0];
-                String content = parts[1];
-                String senderId = parts[2];
-                long timestamp = Long.parseLong(parts[3]);
-                
-                Message.MessageType type = null;
-                if (messageType.equals("DRAW")) {
-                    type = Message.MessageType.DRAW;
-                } else if (messageType.equals("CLEAR")) {
-                    type = Message.MessageType.CLEAR;
-                } else if (messageType.equals("TEXT")) {
-                    type = Message.MessageType.TEXT;
+            }
+            
+            // Create appropriate message type and content
+            Message.MessageType messageType;
+            String finalContent = content;
+            
+            if (typeStr.equals("DRAW")) {
+                messageType = Message.MessageType.DRAW;
+                // Don't add "DRAW:" prefix, message already has proper format
+                if (!finalContent.startsWith("DRAW:") && 
+                    !finalContent.startsWith("START:") && 
+                    !finalContent.startsWith("END:")) {
+                    finalContent = "DRAW:" + finalContent;
                 }
+            } else if (typeStr.equals("START")) {
+                messageType = Message.MessageType.DRAW;
+                finalContent = "START:" + finalContent;
+            } else if (typeStr.equals("END")) {
+                messageType = Message.MessageType.DRAW;
+                finalContent = "END:" + finalContent; 
+            } else if (typeStr.equals("CLEAR")) {
+                messageType = Message.MessageType.CLEAR;
+            } else if (typeStr.equals("TEXT")) {
+                messageType = Message.MessageType.TEXT;
+            } else {
+                logMessage("Skipping unknown message type: " + typeStr);
+                continue;
+            }
+            
+            // Create the message
+            Message msg = new Message(messageType, finalContent, senderId, timestamp);
+            
+            // Store in appropriate history collection
+            if (messageType == Message.MessageType.TEXT) {
+                textHistory.add(msg);
+            } else {
+                drawingHistory.add(msg);
                 
-                if (type != null) {
-                    // Create the message
-                    Message msg = new Message(type, content, senderId, timestamp);
-                    
-                    // Store in appropriate history collection
-                    if (type == Message.MessageType.TEXT) {
-                        textHistory.add(msg);
-                    } else {
-                        drawingHistory.add(msg);
-                        
-                        // If it's a clear message, remove all drawing actions
-                        if (type == Message.MessageType.CLEAR && 
-                            content.contains("CLEAR_ALL")) {
-                            drawingHistory.clear();
-                            drawingHistory.add(msg); // Keep the clear message
-                        }
-                    }
-                    
-                    // Save to local database
-                    appendToLocalDatabase(msg);
-                    
-                    // Forward to any connected clients
-                    for (ClientHandler client : connectedClients) {
-                        client.sendMessage(msg);
-                    }
+                // Handle CLEAR messages
+                if (messageType == Message.MessageType.CLEAR && 
+                    finalContent.contains("CLEAR_ALL")) {
+                    drawingHistory.clear();
+                    drawingHistory.add(msg);
                 }
-            } catch (Exception e) {
-                logMessage("Error handling replication message: " + e.getMessage());
+            }
+            
+            // Save each message to local database the proper way
+            appendToLocalDatabase(msg);
+            
+        } catch (Exception e) {
+            logMessage("Error processing history line: " + e.getMessage());
+        }
+    }
+    
+    logMessage("History processing complete. Drawing history: " + drawingHistory.size() + 
+               " items, Text history: " + textHistory.size() + " items");
+}
+
+       /**
+ * Handle a replication message from the leader
+ * Format: TYPE:CONTENT:SENDER_ID:TIMESTAMP
+ */
+private void handleReplicationMessage(String stringMessage) {
+    try {
+        String[] parts = stringMessage.split(":", 5);
+        if (parts.length < 4) {
+            logMessage("Invalid replication message format: " + stringMessage);
+            return;
+        }
+        
+        String messageType = parts[0];
+        String content = parts[1];
+        String senderId = parts[2];
+        long timestamp = Long.parseLong(parts[3]);
+        
+        Message.MessageType type = null;
+        if (messageType.equals("DRAW")) {
+            type = Message.MessageType.DRAW;
+            // Ensure the content has the proper format for DRAW messages
+            if (!content.startsWith("DRAW:") && 
+                !content.startsWith("START:") && 
+                !content.startsWith("END:")) {
+                content = "DRAW:" + content;
+            }
+        } else if (messageType.equals("CLEAR")) {
+            type = Message.MessageType.CLEAR;
+        } else if (messageType.equals("TEXT")) {
+            type = Message.MessageType.TEXT;
+        }
+        
+        if (type != null) {
+            // Create the message
+            Message msg = new Message(type, content, senderId, timestamp);
+            
+            // Store in appropriate history collection
+            if (type == Message.MessageType.TEXT) {
+                textHistory.add(msg);
+            } else {
+                drawingHistory.add(msg);
+                
+                // If it's a clear message, remove all drawing actions
+                if (type == Message.MessageType.CLEAR && 
+                    content.contains("CLEAR_ALL")) {
+                    drawingHistory.clear();
+                    drawingHistory.add(msg); // Keep the clear message
+                }
+            }
+            
+            // Save to local database
+            appendToLocalDatabase(msg);
+            
+            // Forward to any connected clients
+            for (ClientHandler client : connectedClients) {
+                client.sendMessage(msg);
             }
         }
+    } catch (Exception e) {
+        logMessage("Error handling replication message: " + e.getMessage());
+    }
+}
         
         /**
          * Sends a message to the remote server.
