@@ -287,7 +287,7 @@ public class Server {
                     content = content.substring(type.length() + 1);
                 }
                 
-                String dbEntry = type + ":" + content + ":" + message.getTimestamp() + "\n";
+                String dbEntry = content + ":" + message.getTimestamp() + "\n";
                 fw.write(dbEntry);
                 
                 logMessage("Successfully wrote to local database: " + dbEntry.trim());
