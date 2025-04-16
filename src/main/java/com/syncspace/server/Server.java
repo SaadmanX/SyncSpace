@@ -1299,7 +1299,8 @@ public class Server {
                 else if (stringMessage.startsWith("TEXT")) {
                     logMessage("DEBUG:::::" + stringMessage);
                     // Handle text message - not implemented in this code
-                    handleClientTextMessage(stringMessage);
+                    Message textmsg = Message.fromString(stringMessage);
+                    handleClientTextMessage(textmsg);
                 } 
                 else if (stringMessage.startsWith("FOLLOWER_SHUTDOWN:")) {
                     String followerIp = stringMessage.substring("FOLLOWER_SHUTDOWN:".length());
@@ -1420,26 +1421,20 @@ public class Server {
         /*
          * This handles client text history
          */
-        private void handleClientTextMessage(String stringMessage){
+        private void handleClientTextMessage(Message message){
             try{
-                String textPart = stringMessage.substring(8);
-                Object textObj = deserializeTextMessage(textPart);
+                    if(message.getType() == MessageType.TEXT){
 
-                if(textObj instanceof Message){
-                    Message textMsg = (Message) textObj;
-                    if(textMsg.getType() == MessageType.TEXT){
-
-                        writeActionToFile(textMsg);
+                        writeActionToFile(message);
                         logMessage("---- this is the message we should see ------");
-                        logMessage(textMsg.toString());
+                        logMessage(message.toString());
                         logMessage("--------------");
     
                         for(ClientHandler client : connectedClients){
-                            client.sendMessage(textMsg);
+                            client.sendMessage(message);
                         }
                     }
 
-                }
             }catch (Exception e){
                 logMessage("ERROprocessing text messages: "+e.getMessage());
             }
