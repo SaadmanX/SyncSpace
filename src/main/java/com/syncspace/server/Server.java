@@ -1293,12 +1293,8 @@ public class Server {
                     logMessage("++++++++");
                     // Handle drawing replication from leader
                     String drawingPart = stringMessage.substring("DRAWING:".length());
-                    Object drawObj = deserializeDrawingMessage(drawingPart);
-                    if (drawObj instanceof Message) {
-                        Message drawMsg = (Message) drawObj;
-
-                        handleDrawingMessage(drawMsg);
-                    }
+                    Message drawMsg = Message.fromString(drawingPart);
+                    handleDrawingMessage(drawMsg);
                 }
                 else if (stringMessage.startsWith("TEXT")) {
                     logMessage("DEBUG:::::" + stringMessage);
@@ -1462,10 +1458,9 @@ public class Server {
                     if (drawMsg.getType() == Message.MessageType.DRAW || 
                         drawMsg.getType() == Message.MessageType.CLEAR) {
                         
-                        Message submessage = parseActionLine(drawMsg.getContent());
-                        writeActionToFile((Message) deserializeDrawingMessage(drawMsg.getContent()));
+                        writeActionToFile(drawMsg);
                         logMessage("---- this is the message we should see ------");
-                        logMessage(((Message) deserializeDrawingMessage(drawMsg.getContent())).toString());
+                        logMessage(drawMsg.toString());
                         logMessage("--------------");
     
                         // Forward to connected clients

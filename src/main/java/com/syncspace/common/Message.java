@@ -68,4 +68,30 @@ public class Message implements Serializable {
         
         return sb.toString();
     }
+
+    public static Message fromString(String input) {
+        if (input == null || !input.startsWith("Message{") || !input.endsWith("}")) {
+            throw new IllegalArgumentException("Invalid message format");
+        }
+    
+        try {
+            String body = input.substring(8, input.length() - 1); // remove "Message{" and "}"
+            String[] parts = body.split(", (?=[a-zA-Z]+=)"); // split by ", " only before each key=
+    
+            String typeStr = parts[0].split("=")[1];
+            String content = parts[1].split("=")[1].replaceAll("^'(.*)'$", "$1");
+            String senderId = parts[2].split("=")[1].replaceAll("^'(.*)'$", "$1");
+            String timestampStr = parts[3].split("=")[1];
+    
+            MessageType type = MessageType.valueOf(typeStr);
+    
+            java.text.SimpleDateFormat dateFormat = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
+            long timestamp = dateFormat.parse(timestampStr).getTime();
+    
+            return new Message(type, content, senderId, timestamp);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to parse message: " + e.getMessage(), e);
+        }
+    }
+    
 }
