@@ -74,7 +74,9 @@ public class Server {
     private static final int SYNC_INTERVAL_SECONDS = 60;  // Run sync every minute
 
     // Local database storage
-    private static final String DATABASE_FILE = "local_database.txt";
+    private static final String DATABASE_FILE_PREFIX = "local_database_";
+    private static final String DATABASE_FILE_SUFFIX = ".txt";
+    private String databaseFile; // Instance-specific database file path
     private final Object databaseLock = new Object();
     
     // Server sockets
@@ -128,9 +130,13 @@ public class Server {
         // Initialize server IP
         this.serverIp = initializeServerIp();
         
+        // Create unique database filename using server IP
+        this.databaseFile = createDatabaseFileName(serverIp);
+        
         // Log startup information
         logMessage("======= STARTING SERVER AS " + (isLeader() ? "LEADER" : "FOLLOWER") + " =======");
         logMessage("SERVER IP: " + serverIp);
+        logMessage("DATABASE FILE: " + databaseFile);
         if (!isLeader()) {
             logMessage("Command line args: 1 argument provided - Leader IP: " + leaderIp);
         } else {
@@ -163,20 +169,29 @@ public class Server {
     }
 
     /**
+     * Creates a unique database filename based on the server's IP address
+     */
+    private String createDatabaseFileName(String ip) {
+        // Replace dots with underscores to make a valid filename
+        String sanitizedIp = ip.replace('.', '_');
+        return DATABASE_FILE_PREFIX + sanitizedIp + DATABASE_FILE_SUFFIX;
+    }
+
+    /**
      * Initializes the local database file if it doesn't exist
      */
     private void initializeLocalDatabase() {
-        File dbFile = new File(DATABASE_FILE);
+        File dbFile = new File(databaseFile);
         try {
             if (!dbFile.exists()) {
-                logMessage("Creating new local database file: " + DATABASE_FILE);
+                logMessage("Creating new local database file: " + databaseFile);
                 if (dbFile.createNewFile()) {
                     logMessage("Local database file created successfully");
                 } else {
                     logMessage("Failed to create local database file");
                 }
             } else {
-                logMessage("Using existing local database file: " + DATABASE_FILE);
+                logMessage("Using existing local database file: " + databaseFile);
             }
         } catch (IOException e) {
             logMessage("Error initializing local database: " + e.getMessage());
@@ -192,7 +207,7 @@ private void loadDrawingHistoryFromLocalDatabase() {
         drawingHistory.clear();
         textHistory.clear();
         
-        try (FileReader fr = new FileReader(DATABASE_FILE);
+        try (FileReader fr = new FileReader(databaseFile);
              BufferedReader br = new BufferedReader(fr)) {
             
             logMessage("Loading drawing history from local database");
@@ -288,7 +303,7 @@ private void loadDrawingHistoryFromLocalDatabase() {
  */
 private void appendToLocalDatabase(Message message) {
     synchronized (databaseLock) {
-        try (FileWriter fw = new FileWriter(DATABASE_FILE, true)) {
+        try (FileWriter fw = new FileWriter(databaseFile, true)) {
             // Extract content and message type
             String content = message.getContent();
             String type = message.getType().toString();
@@ -1426,14 +1441,14 @@ private void appendToLocalDatabase(Message message) {
             synchronized (databaseLock) {
                 try {
                     // Create a new empty database file
-                    File dbFile = new File(DATABASE_FILE);
+                    File dbFile = new File(databaseFile);
                     if (dbFile.exists()) {
                         dbFile.delete();
                     }
                     dbFile.createNewFile();
                     
                     // Write all history to the file
-                    try (FileWriter fw = new FileWriter(DATABASE_FILE)) {
+                    try (FileWriter fw = new FileWriter(databaseFile)) {
                         fw.write(historyData);
                     }
                     
