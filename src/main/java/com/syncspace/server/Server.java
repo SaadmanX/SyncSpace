@@ -272,31 +272,45 @@ public class Server {
         }
     }
     
-    /**
-     * Appends a message to the local database file
-     */
-    private void appendToLocalDatabase(Message message) {
-        synchronized (databaseLock) {
-            try (FileWriter fw = new FileWriter(DATABASE_FILE, true)) {
-                // Format: TYPE:CONTENT:TIMESTAMP
-                String content = message.getContent();
-                String type = message.getType().toString();
-                
-                // Strip off any prefix like "DRAW:" or "TEXT:" if it's duplicated in the content
-                if (content.startsWith(type + ":")) {
-                    content = content.substring(type.length() + 1);
-                }
-                
-                String dbEntry = content + ":" + message.getTimestamp() + "\n";
-                fw.write(dbEntry);
-                
-                logMessage("Successfully wrote to local database: " + dbEntry.trim());
-            } catch (IOException e) {
-                logMessage("Error writing to local database: " + e.getMessage());
-                e.printStackTrace();
+/**
+ * Appends a message to the local database file
+ */
+private void appendToLocalDatabase(Message message) {
+    synchronized (databaseLock) {
+        try (FileWriter fw = new FileWriter(DATABASE_FILE, true)) {
+            // Extract content and type
+            String content = message.getContent();
+            String type = message.getType().toString();
+            
+            // If content starts with the message type (e.g., "DRAW:content" or "TEXT:content")
+            // we need to extract just the actual content
+            if (content.startsWith(type + ":")) {
+                content = content.substring(type.length() + 1);
             }
+            
+            // For DRAW messages, they might have more specific subtypes like START: or END:
+            if (type.equals("DRAW")) {
+                for (String prefix : new String[]{"DRAW:", "START:", "END:"}) {
+                    if (content.startsWith(prefix)) {
+                        content = content.substring(prefix.length());
+                        // Add back the subtype as part of the type
+                        type = prefix.substring(0, prefix.length() - 1); // Remove the colon
+                        break;
+                    }
+                }
+            }
+            
+            // Format: TYPE:CONTENT:TIMESTAMP
+            String dbEntry = type + ":" + content + ":" + message.getTimestamp() + "\n";
+            fw.write(dbEntry);
+            
+            logMessage("Successfully wrote to local database: " + dbEntry.trim());
+        } catch (IOException e) {
+            logMessage("Error writing to local database: " + e.getMessage());
+            e.printStackTrace();
         }
     }
+}
     
     /**
      * Gets the local server IP address.
