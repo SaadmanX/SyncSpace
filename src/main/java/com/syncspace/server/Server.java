@@ -1451,7 +1451,7 @@ public class Server {
                         drawMsg.getType() == Message.MessageType.CLEAR) {
                         
                         Message submessage = parseActionLine(drawMsg.getContent());
-                        writeActionToFile(submessage);
+                        writeActionToFile(drawMsg);
                         logMessage("---- this is the message we should see ------");
                         logMessage(drawMsg.toString());
                         logMessage("--------------");
