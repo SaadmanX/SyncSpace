@@ -861,14 +861,14 @@ public class Server {
                 String line;
                 
                 while ((line = reader.readLine()) != null) {
-                    Message msg = parseActionLine(line);
+                    Message msg = Message.fromString(line);
                     
                     // Skip null or non-drawing messages
                     if (msg == null) continue;
                     
                     // Only collect drawing-related messages
                     if (msg.getType() == Message.MessageType.DRAW || 
-                        msg.getType() == Message.MessageType.CLEAR) {
+                        msg.getType() == Message.MessageType.CLEAR || msg.getType() == Message.MessageType.TEXT) {
                         
                         // If it's a clear message, clear all previous actions
                         if (msg.getType() == Message.MessageType.CLEAR && 
@@ -975,7 +975,6 @@ public class Server {
                     }
                 } else if (message.getType() == Message.MessageType.CLEAR) {
                     typeStr = "CLEAR";
-                    content = content.substring("CLEAR:".length()); // Remove "START:" prefix
                 } else if (message.getType() == Message.MessageType.TEXT) {
                     typeStr = "TEXT";
                     content = content.substring("TEXT:".length()); // Remove "START:" prefix
@@ -1306,14 +1305,6 @@ public class Server {
                     Message actmsg = Message.fromString(actionpart);
                     handleActionMessage(actmsg);
                 }
-                // else if (stringMessage.startsWith("TEXT")) {
-                //     logMessage("DEBUG:::::" + stringMessage);
-                //     // Handle text message - not implemented in this code
-                //     String textpart = stringMessage.substring("TEXT:".length());
-
-                //     Message textmsg = Message.fromString(textpart);
-                //     handleClientTextMessage(textmsg);
-                // } 
                 else if (stringMessage.startsWith("FOLLOWER_SHUTDOWN:")) {
                     String followerIp = stringMessage.substring("FOLLOWER_SHUTDOWN:".length());
                     followerIps.remove(followerIp);
