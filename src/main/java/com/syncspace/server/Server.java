@@ -366,6 +366,7 @@ public class Server {
                         msg.connection.handleMessage(msg.message);
                     } catch (Exception e) {
                         logMessage("Error handling message: " + e.getMessage());
+                        logMessage(msg.message.toString());
                     }
                 }
             } catch (InterruptedException e) {
@@ -1394,54 +1395,6 @@ public class Server {
             
             logMessage("Finished processing action history");
         }        
-
-        private Object deserializeTextMessage(String serialText){
-            
-            try{
-                if (serialText.contains("TEXT:")) {
-                    String[] parts = serialText.split(":", 2);
-                    String type = parts[0];
-                    String content = parts.length > 1 ? parts[1] : "";
-                    String senderId = "SERVER";
-                    
-                    Message.MessageType messageType = null;
-                    if (type.equals("TEXT")) {
-                        messageType = Message.MessageType.TEXT;
-                    }
-                    
-                    if (messageType != null) {
-                        return new Message(messageType, content, senderId);
-                    }
-                }
-            }catch (Exception e){
-                logMessage("Error deserializing: " + e.getMessage());
-            }
-            return null;
-        }
-
-        
-        /*
-         * This handles client text history
-         */
-        private void handleClientTextMessage(Message message){
-            try{
-                    if(message.getType() == MessageType.TEXT){
-
-                        writeActionToFile(message);
-                        logMessage("---- this is the message we should see ------");
-                        logMessage(message.toString());
-                        logMessage("--------------");
-    
-                        for(ClientHandler client : connectedClients){
-                            client.sendMessage(message);
-                        }
-                    }
-
-            }catch (Exception e){
-                logMessage("ERROprocessing text messages: "+e.getMessage());
-            }
-        
-        }
         
         /**
          * Handles drawing replication messages from the leader.
@@ -1563,29 +1516,6 @@ public class Server {
         }
     }
     
-    /**
-     * Helper method to deserialize drawing messages.
-     */
-    // Update the deserializeDrawingMessage method to use timestamps
-    private Object deserializeDrawingMessage(String serializedStr) {
-        try {
-            // Check for drawing or clear actions
-            if (serializedStr.contains("DRAW:") || 
-                serializedStr.contains("START:") || 
-                serializedStr.contains("END:")) {
-                
-                // All drawing actions use MessageType.DRAW
-                return new Message(Message.MessageType.DRAW, serializedStr, "SERVER", getCurrentTime());
-                
-            } else if (serializedStr.contains("CLEAR:")) {
-                return new Message(Message.MessageType.CLEAR, serializedStr, "SERVER", getCurrentTime());
-            }
-        } catch (Exception e) {
-            logMessage("Error deserializing: " + e.getMessage());
-        }
-        return null;
-    }    
-
     /**
      * Main method. This will start either a leader or a follower.
      */
