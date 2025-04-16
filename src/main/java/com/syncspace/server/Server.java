@@ -918,7 +918,7 @@ public class Server {
             logMessage("trying to parse this line: " + line);
             if (line.trim().isEmpty()) return null;
             
-            String[] mainParts = line.split(";", 2);
+            String[] mainParts = line.split(";");
             logMessage("main parts: " + mainParts);
             if (mainParts.length < 2) return null;
             
