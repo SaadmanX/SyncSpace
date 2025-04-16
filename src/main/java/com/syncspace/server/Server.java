@@ -860,8 +860,9 @@ public class Server {
                     new java.io.FileReader(getFilename()))) {
                 String line;
                 
+                logMessage("inside the lock. should start sending serially");
                 while ((line = reader.readLine()) != null) {
-                    Message msg = Message.fromString(line);
+                    Message msg = parseActionLine(line);
                     
                     // Skip null or non-drawing messages
                     if (msg == null) continue;
@@ -877,6 +878,7 @@ public class Server {
                         }
                         
                         actionsToSend.add(msg);
+                        logMessage("action added to sendstream: " + msg.toString());
                     }
                 }
             } catch (IOException e) {
