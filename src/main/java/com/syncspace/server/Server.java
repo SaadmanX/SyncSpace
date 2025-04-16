@@ -1474,6 +1474,7 @@ private void appendToLocalDatabase(Message message) {
                     
                     Message msg = new Message(messageType, content, senderId, timestamp);
                     
+                    logMessage("DEBUG::::::::: THIS IS THE MESSSAGE RECEIVED => "+msg.getType()+":"+msg.getContent()+":"+msg.getSenderId()+":"+msg.getTimestamp());
                     // Add to appropriate history collection
                     if (messageType == Message.MessageType.TEXT) {
                         textHistory.add(msg);
