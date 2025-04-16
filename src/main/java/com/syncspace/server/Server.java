@@ -25,6 +25,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import com.syncspace.common.Message;
 import com.syncspace.common.Message.MessageType;
+import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.BufferedReader;
 
 /**
  * Server implementation for SyncSpace application.
@@ -54,7 +58,6 @@ public class Server {
     
     // Connection management
     private final List<ServerConnection> serverConnections = new CopyOnWriteArrayList<>();
-    private ServerConnection dbConn;
     private final List<String> followerIps = new CopyOnWriteArrayList<>();
     private final BlockingQueue<ConnectionMessage> messageQueue = new PriorityBlockingQueue<>(1000, 
         (msg1, msg2) -> {
@@ -70,6 +73,9 @@ public class Server {
     private final Map<String, Long> clientTimes = new HashMap<>();
     private static final int SYNC_INTERVAL_SECONDS = 60;  // Run sync every minute
 
+    // Local database storage
+    private static final String DATABASE_FILE = "local_database.txt";
+    private final Object databaseLock = new Object();
     
     // Server sockets
     private ServerSocket clientServerSocket;
@@ -81,7 +87,6 @@ public class Server {
     private static final int HEARTBEAT_INTERVAL_MS = 2000; // 2 seconds
     private static final int HEARTBEAT_TIMEOUT_MS = 6000; // 6 seconds
     private volatile long lastLeaderHeartbeat = 0;
-
 
     // Drawing state
     private final List<Message> drawingHistory = new CopyOnWriteArrayList<>();
@@ -132,6 +137,9 @@ public class Server {
             logMessage("Command line args: 0 arguments provided");
         }
         
+        // Initialize local database
+        initializeLocalDatabase();
+        
         // Start connection processing threads
         startConnectionThreads();
         
@@ -144,56 +152,152 @@ public class Server {
                 TimeUnit.SECONDS
             );
         
-            startDBConn();
             startServerToServerListener();
             startClientListener();
+            
+            // If leader, load drawing history from local database
+            loadDrawingHistoryFromLocalDatabase();
         } else {
             connectToLeader();
         }
     }
 
     /**
-     * Starts database connection asynchronously.
+     * Initializes the local database file if it doesn't exist
      */
-    private void startDBConn() {
-        if (!isLeader()) return;
-        
-        taskExecutor.execute(() -> {
-            int retryCount = 0;
-            final int maxRetries = 5;
-            final int retryDelayMs = 2000;
+    private void initializeLocalDatabase() {
+        File dbFile = new File(DATABASE_FILE);
+        try {
+            if (!dbFile.exists()) {
+                logMessage("Creating new local database file: " + DATABASE_FILE);
+                if (dbFile.createNewFile()) {
+                    logMessage("Local database file created successfully");
+                } else {
+                    logMessage("Failed to create local database file");
+                }
+            } else {
+                logMessage("Using existing local database file: " + DATABASE_FILE);
+            }
+        } catch (IOException e) {
+            logMessage("Error initializing local database: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+    
+    /**
+     * Loads drawing history from local database file
+     */
+    private void loadDrawingHistoryFromLocalDatabase() {
+        synchronized (databaseLock) {
+            drawingHistory.clear();
+            textHistory.clear();
             
-            while (retryCount < maxRetries && running) {
-                try {
-                    logMessage("Attempting database connection to 10.59.175.18:1500 (Attempt " + (retryCount + 1) + ")");
-                    Socket dbSocket = new Socket("10.59.175.18", 1500);
-                    logMessage("Leader connected to database successfully");
-                    
-                    // Create and initialize connection
-                    dbConn = new ServerConnection(dbSocket, "10.59.175.18", ServerConnectionType.DATABASE);
-                    serverConnections.add(dbConn);  // Add this line to register the connection
-                    dbConn.start();
-                    
-                    // Successfully connected
-                    return;
-                    
-                } catch (IOException e) {
-                    retryCount++;
-                    logMessage("ERROR connecting to database: " + e.getMessage() + 
-                            (retryCount < maxRetries ? " Will retry in " + (retryDelayMs/1000) + " seconds." : " Giving up after " + retryCount + " attempts."));
-                    
+            try (FileReader fr = new FileReader(DATABASE_FILE);
+                 BufferedReader br = new BufferedReader(fr)) {
+                
+                logMessage("Loading drawing history from local database");
+                String line;
+                int lineCount = 0;
+                
+                while ((line = br.readLine()) != null) {
                     try {
-                        // Wait before retrying
-                        Thread.sleep(retryDelayMs);
-                    } catch (Exception ie) {
-                        ie.printStackTrace();
+                        if (line.trim().isEmpty()) continue;
+                        
+                        String[] parts = line.split(":");
+                        if (parts.length < 2) continue;
+                        
+                        String typeStr = parts[0].trim();
+                        String content = parts[1].trim();
+                        String userId = "SERVER";
+                        long timestamp = System.currentTimeMillis();
+                        
+                        // Extract timestamp if available
+                        if (parts.length >= 3) {
+                            try {
+                                timestamp = Long.parseLong(parts[2].trim());
+                            } catch (NumberFormatException e) {
+                                logMessage("Invalid timestamp format in database: " + parts[2]);
+                            }
+                        }
+                        
+                        // Extract user ID if available in the content
+                        if (content.contains(";")) {
+                            String[] contentParts = content.split(";", 2);
+                            content = contentParts[0];
+                            if (contentParts.length > 1) {
+                                userId = contentParts[1];
+                            }
+                        }
+                        
+                        // Determine message type
+                        Message.MessageType messageType;
+                        if (typeStr.equals("DRAW") || typeStr.equals("START") || typeStr.equals("END")) {
+                            messageType = Message.MessageType.DRAW;
+                        } else if (typeStr.equals("CLEAR")) {
+                            messageType = Message.MessageType.CLEAR;
+                        } else if (typeStr.equals("TEXT")) {
+                            messageType = Message.MessageType.TEXT;
+                        } else {
+                            // Skip unknown message types
+                            continue;
+                        }
+                        
+                        // Create message and add to appropriate history
+                        Message msg = new Message(messageType, typeStr + ":" + content, userId, timestamp);
+                        
+                        if (messageType == Message.MessageType.TEXT) {
+                            textHistory.add(msg);
+                        } else {
+                            drawingHistory.add(msg);
+                            
+                            // If it's a clear message, remove all drawing actions before this point
+                            if (messageType == Message.MessageType.CLEAR && "CLEAR_ALL".equals(content)) {
+                                drawingHistory.clear();
+                                drawingHistory.add(msg); // Keep the clear message
+                            }
+                        }
+                        
+                        lineCount++;
+                    } catch (Exception e) {
+                        logMessage("Error parsing line from database: " + line + " - " + e.getMessage());
                     }
                 }
+                
+                logMessage("Loaded " + lineCount + " actions from local database");
+                
+            } catch (IOException e) {
+                logMessage("Error reading from local database: " + e.getMessage());
+                e.printStackTrace();
             }
-            
-            logMessage("Could not establish database connection after " + maxRetries + " attempts. Server will run without database integration.");
-        });
-    }    
+        }
+    }
+    
+    /**
+     * Appends a message to the local database file
+     */
+    private void appendToLocalDatabase(Message message) {
+        synchronized (databaseLock) {
+            try (FileWriter fw = new FileWriter(DATABASE_FILE, true)) {
+                // Format: TYPE:CONTENT:TIMESTAMP
+                String content = message.getContent();
+                String type = message.getType().toString();
+                
+                // Strip off any prefix like "DRAW:" or "TEXT:" if it's duplicated in the content
+                if (content.startsWith(type + ":")) {
+                    content = content.substring(type.length() + 1);
+                }
+                
+                String dbEntry = type + ":" + content + ":" + message.getTimestamp() + "\n";
+                fw.write(dbEntry);
+                
+                logMessage("Successfully wrote to local database: " + dbEntry.trim());
+            } catch (IOException e) {
+                logMessage("Error writing to local database: " + e.getMessage());
+                e.printStackTrace();
+            }
+        }
+    }
+    
     /**
      * Gets the local server IP address.
      * @return Local IP address string
@@ -315,8 +419,6 @@ public class Server {
         return System.currentTimeMillis() + virtualClockOffset;
     }
 
-
-    
     /**
      * Starts the reader and handler threads for connection processing.
      */
@@ -541,6 +643,10 @@ public class Server {
 
                         followerIps.add(followerIp);
                         sendFollowersToConnections();
+                        
+                        // Send current drawing history to new follower
+                        sendDrawingHistoryToFollower(connection);
+                        
                         logServerState();
 
                     } catch (IOException e) {
@@ -555,6 +661,42 @@ public class Server {
                 logMessage("ERROR in server-to-server listener: " + e.getMessage());
             }
         });
+    }
+    
+    /**
+     * Sends the entire drawing history to a new follower
+     */
+    private void sendDrawingHistoryToFollower(ServerConnection followerConnection) {
+        if (!isLeader() || followerConnection == null) return;
+        
+        logMessage("Sending drawing history to follower at " + followerConnection.getRemoteIp());
+        
+        // Create a full history message
+        StringBuilder sb = new StringBuilder("FULL_HISTORY:");
+        
+        // Include all drawing actions
+        for (Message drawAction : drawingHistory) {
+            sb.append(drawAction.getType())
+              .append(":")
+              .append(drawAction.getContent())
+              .append(":")
+              .append(drawAction.getTimestamp())
+              .append("\n");
+        }
+        
+        // Include all text messages
+        for (Message textMsg : textHistory) {
+            sb.append(textMsg.getType())
+              .append(":")
+              .append(textMsg.getContent())
+              .append(":")
+              .append(textMsg.getTimestamp())
+              .append("\n");
+        }
+        
+        // Send the history to the follower
+        followerConnection.sendMessage(sb.toString());
+        logMessage("Drawing history sent to follower at " + followerConnection.getRemoteIp());
     }
     
     /**
@@ -787,7 +929,9 @@ public class Server {
             client.sendMessage("NEW_LEADER_IP" + serverIp);
         }
         
-        startDBConn();
+        // Load drawing history from local database
+        loadDrawingHistoryFromLocalDatabase();
+        
         startServerToServerListener();
         startClientListener();
         
@@ -814,6 +958,8 @@ public class Server {
         state.append("Client connections: ").append(connectedClients.size()).append("\n");
         state.append("Server connections: ").append(serverConnections.size()).append("\n");
         state.append("Message queue size: ").append(messageQueue.size()).append("\n");
+        state.append("Drawing history size: ").append(drawingHistory.size()).append("\n");
+        state.append("Text history size: ").append(textHistory.size()).append("\n");
         
         state.append("Follower IPs (").append(followerIps.size()).append("):");
         if (followerIps.isEmpty()) {
@@ -843,24 +989,38 @@ public class Server {
     public void broadcastToAll(Object message, ClientHandler sender) {
         logMessage("Broadcasting message to all clients: " + message.toString());
         
-        // Store drawing actions in history
+        // Store drawing actions in history and local database
         if (message instanceof Message) {
             Message msg = (Message) message;
             if (msg.getType() == Message.MessageType.DRAW || 
-                msg.getType() == Message.MessageType.CLEAR || msg.getType() == Message.MessageType.TEXT) {
-                drawingHistory.add(msg);
+                msg.getType() == Message.MessageType.CLEAR ||
+                msg.getType() == Message.MessageType.TEXT) {
                 
-                if (dbConn != null) {
-                    dbConn.sendMessage(msg);
-                }
+                // Store in appropriate history collection
+                if (msg.getType() == Message.MessageType.TEXT) {
+                    textHistory.add(msg);
+                } else {
+                    drawingHistory.add(msg);
                     
-                // If leader, replicate drawing history to followers
+                    // If it's a clear message, remove all drawing actions
+                    if (msg.getType() == Message.MessageType.CLEAR && 
+                        msg.getContent().contains("CLEAR_ALL")) {
+                        drawingHistory.clear();
+                        drawingHistory.add(msg); // Keep the clear message
+                    }
+                }
+                
+                // Save to local database
+                appendToLocalDatabase(msg);
+                
+                // If leader, replicate to followers
                 if (isLeader()) {
-                    replicateDrawingToFollowers(msg);
+                    replicateMessageToFollowers(msg);
                 }
             }
         }
         
+        // Send to all connected clients except the sender
         for (ClientHandler client : connectedClients) {
             if (client != sender) {
                 client.sendMessage(message);
@@ -869,14 +1029,18 @@ public class Server {
     }
     
     /**
-     * Replicates drawing actions to all followers.
+     * Replicates messages to all followers.
      */
-    private void replicateDrawingToFollowers(Message drawingMessage) {
+    private void replicateMessageToFollowers(Message message) {
         if (!isLeader()) return;
+        
+        String messageType = message.getType().toString();
+        logMessage("Replicating " + messageType + " message to " + followerIps.size() + " followers");
         
         for (ServerConnection conn : new ArrayList<>(serverConnections)) {
             if (conn.getType() == ServerConnectionType.FOLLOWER) {
-                conn.sendMessage("DRAWING:" + drawingMessage);
+                conn.sendMessage("REPLICATE:" + messageType + ":" + message.getContent() + 
+                                ":" + message.getSenderId() + ":" + message.getTimestamp());
             }
         }
     }
@@ -906,6 +1070,14 @@ public class Server {
         // Then send all drawing actions with their original timestamps
         for (Message drawAction : sortedHistory) {
             client.sendMessage(drawAction);
+        }
+        
+        // Send all text messages sorted by timestamp
+        List<Message> sortedTextHistory = new ArrayList<>(textHistory);
+        sortedTextHistory.sort((m1, m2) -> Long.compare(m1.getTimestamp(), m2.getTimestamp()));
+        
+        for (Message textMsg : sortedTextHistory) {
+            client.sendMessage(textMsg);
         }
     }
                 
@@ -942,7 +1114,7 @@ public class Server {
             logMessage("Shutting down as LEADER");
             logMessage("Notifying followers of shutdown");
             for (ServerConnection conn : new ArrayList<>(serverConnections)) {
-                if (conn.getType() == ServerConnectionType.FOLLOWER || conn.getType() == ServerConnectionType.DATABASE) {
+                if (conn.getType() == ServerConnectionType.FOLLOWER) {
                     logMessage("Sending shutdown notice to " + conn.getType() + " at " + conn.getRemoteIp());
                     conn.sendMessage("LEADER_SHUTDOWN");
                 }
@@ -1063,8 +1235,7 @@ public class Server {
      */
     private enum ServerConnectionType {
         LEADER,
-        FOLLOWER,
-        DATABASE
+        FOLLOWER
     }
     
     /**
@@ -1131,7 +1302,6 @@ public class Server {
          * Handles incoming messages.
          */
         private void handleMessage(Object message) {
-
             if (message instanceof String) {
                 String stringMessage = (String) message;
                 if (stringMessage.equals("HEARTBEAT")) {
@@ -1161,15 +1331,10 @@ public class Server {
                     sendFollowersToConnections();
                     logServerState();
                 }
-                else if (stringMessage.startsWith("DRAWING:")) {
-                    // Handle drawing replication from leader
-                    handleDrawingMessage(stringMessage);
+                else if (stringMessage.startsWith("REPLICATE:")) {
+                    // Handle replication messages from the leader
+                    handleReplicationMessage(stringMessage);
                 }
-                else if (stringMessage.startsWith("TEXT")) {
-                    logMessage("DEBUG:::::" + stringMessage);
-                    // Handle text message - not implemented in this code
-                    handleClientTextMessage(stringMessage);
-                } 
                 else if (stringMessage.startsWith("FOLLOWER_SHUTDOWN:")) {
                     String followerIp = stringMessage.substring("FOLLOWER_SHUTDOWN:".length());
                     followerIps.remove(followerIp);
@@ -1188,23 +1353,15 @@ public class Server {
                         close();
                         startElection();
                     }
-                    else if (type == ServerConnectionType.DATABASE) {
-                        close();
-                    }
                 }
-                else if (stringMessage.startsWith("ALLDRAW:")) {
-                    logMessage("attempting to remake history");
-                    String drawActions = stringMessage.substring("ALLDRAW:".length());
-                    updateDrawHistory(drawActions);
-                    logMessage("Updated drawing history -follower");
+                else if (stringMessage.startsWith("FULL_HISTORY:")) {
+                    logMessage("Received full history from leader");
+                    String historyData = stringMessage.substring("FULL_HISTORY:".length());
+                    processFullHistory(historyData);
                 }
-                else if (stringMessage.equals("DB_READY")) {
-                    dbConn.sendMessage("SERVER_READY");
-                }                
                 else {
                     // Other string messages
-                    logMessage("Received message: " + stringMessage);
-                    // dbConn.sendMessage(stringMessage);
+                    logMessage("Received unknown message: " + stringMessage);
                 }
             } else {
                 logMessage("Received unknown message type: " + message.getClass().getName());
@@ -1212,165 +1369,149 @@ public class Server {
         }
 
         /**
-         * Updates the drawing history with actions received from the database.
-         * Each line in the input string represents a single drawing action.
-         * 
-         * @param drawActions String containing all drawing actions, each on a separate line
+         * Process a full history update from leader
+         * Format: TYPE:CONTENT:TIMESTAMP\n
          */
-        private void updateDrawHistory(String drawActions) {
-            // Clear existing history
-            drawingHistory.clear();
-            
-            // Handle empty or null input
-            if (drawActions == null || drawActions.trim().isEmpty()) {
-                logMessage("Received empty drawing history from database");
+        private void processFullHistory(String historyData) {
+            if (historyData == null || historyData.trim().isEmpty()) {
+                logMessage("Received empty history data");
                 return;
             }
             
-            // Split the actions by newline
-            String[] actions = drawActions.split("\n");
-            logMessage("Processing " + actions.length + " drawing actions from database");
+            logMessage("Processing history data with " + historyData.split("\n").length + " entries");
             
-            // Process each action
-            for (String action : actions) {
+            // Clear existing histories
+            drawingHistory.clear();
+            textHistory.clear();
+            
+            // Clear database file and create a new one
+            synchronized (databaseLock) {
                 try {
-                    // Skip empty lines
-                    if (action.trim().isEmpty()) {
-                        continue;
+                    // Create a new empty database file
+                    File dbFile = new File(DATABASE_FILE);
+                    if (dbFile.exists()) {
+                        dbFile.delete();
+                    }
+                    dbFile.createNewFile();
+                    
+                    // Write all history to the file
+                    try (FileWriter fw = new FileWriter(DATABASE_FILE)) {
+                        fw.write(historyData);
                     }
                     
-                    // Parse the action format - expected format is "TYPE:DATA;USER"
-                    // For example: "DRAW:START:100,200;user123" or "CLEAR:CLEAR_ALL;SERVER"
-                    String[] parts = action.split(":");
-                    if (parts.length < 2) {
-                        logMessage("Invalid drawing action format: " + action);
+                    logMessage("History data written to local database");
+                } catch (IOException e) {
+                    logMessage("Error writing history to database: " + e.getMessage());
+                }
+            }
+            
+            // Process each line to rebuild in-memory history
+            String[] lines = historyData.split("\n");
+            for (String line : lines) {
+                try {
+                    if (line.trim().isEmpty()) continue;
+                    
+                    String[] parts = line.split(":");
+                    if (parts.length < 3) {
+                        logMessage("Invalid history line format: " + line);
                         continue;
                     }
                     
                     String typeStr = parts[0].trim();
                     String content = parts[1].trim();
-                    String time = parts[2].trim();
-                    // Determine the message type
-                    Message.MessageType messageType = null;
-                    if (typeStr.equals("DRAW") || typeStr.equals("START") || typeStr.equals("END") ) {
+                    long timestamp = Long.parseLong(parts[2].trim());
+                    String senderId = parts.length > 3 ? parts[3].trim() : "SERVER";
+                    
+                    // Create appropriate message type
+                    Message.MessageType messageType;
+                    if (typeStr.equals("DRAW")) {
                         messageType = Message.MessageType.DRAW;
-                    } 
-                    else if (typeStr.equals("CLEAR")) {
+                    } else if (typeStr.equals("CLEAR")) {
                         messageType = Message.MessageType.CLEAR;
-                        
-                        // If this is a clear command, we should remove previous draw actions
-                        if (content.contains("CLEAR_ALL")) {
-                            drawingHistory.removeIf(m -> m.getType() == Message.MessageType.DRAW);
-                        }
+                    } else if (typeStr.equals("TEXT")) {
+                        messageType = Message.MessageType.TEXT;
                     } else {
-                        messageType = Message.MessageType.TEXT;
+                        continue; // Skip unknown types
                     }
                     
-                    // Extract user ID from content if it contains a semicolon
-                    String senderId = "SERVER";  // Default sender
-                    if (content.contains(";")) {
-                        String[] contentParts = content.split(";", 2);
-                        content = contentParts[0];
-                        if (contentParts.length > 1) {
-                            senderId = contentParts[1];
-                        }
-                    }
+                    Message msg = new Message(messageType, content, senderId, timestamp);
                     
-                    // Create message and add to history
-                    Message msg = new Message(messageType, typeStr + ":" + content, senderId, Long.parseLong(time));
-                    drawingHistory.add(msg);
-                    logMessage(msg.toString());
-                    
-                } catch (Exception e) {
-                    logMessage("Error parsing drawing action '" + action + "': " + e.getMessage());
-                }
-            }
-            
-            logMessage("Successfully updated drawing history with " + drawingHistory.size() + " actions");
-        }   
-
-        private Object deserializeTextMessage(String serialText){
-            
-            try{
-                if (serialText.contains("TEXT:")) {
-                    String[] parts = serialText.split(":", 2);
-                    String type = parts[0];
-                    String content = parts.length > 1 ? parts[1] : "";
-                    String senderId = "SERVER";
-                    
-                    Message.MessageType messageType = null;
-                    if (type.equals("TEXT")) {
-                        messageType = Message.MessageType.TEXT;
-                    }
-                    
-                    if (messageType != null) {
-                        return new Message(messageType, content, senderId);
-                    }
-                }
-            }catch (Exception e){
-                logMessage("Error deserializing: " + e.getMessage());
-            }
-            return null;
-        }
-
-        
-        /*
-         * This handles client text history
-         */
-        private void handleClientTextMessage(String stringMessage){
-            try{
-                String textPart = stringMessage.substring(8);
-                Object textObj = deserializeTextMessage(textPart);
-
-                if(textObj instanceof Message){
-                    Message textMsg = (Message) textObj;
-                    if(textMsg.getType() == MessageType.TEXT){
-                        if(!textHistory.contains(textMsg)){
-                            textHistory.add(textMsg);
-                        }
-
-                        for(ClientHandler client : connectedClients){
-                            client.sendMessage(textMsg);
-                        }
-                    }
-
-                }
-            }catch (Exception e){
-                logMessage("ERROprocessing text messages: "+e.getMessage());
-            }
-        
-        }
-        
-        /**
-         * Handles drawing replication messages from the leader.
-         */
-        private void handleDrawingMessage(String stringMessage) {
-            try {
-                String drawingPart = stringMessage.substring(8);
-                Object drawObj = deserializeDrawingMessage(drawingPart);
-                if (drawObj instanceof Message) {
-                    Message drawMsg = (Message) drawObj;
-                    if (drawMsg.getType() == Message.MessageType.DRAW || 
-                        drawMsg.getType() == Message.MessageType.CLEAR) {
+                    // Add to appropriate history collection
+                    if (messageType == Message.MessageType.TEXT) {
+                        textHistory.add(msg);
+                    } else {
+                        drawingHistory.add(msg);
                         
-                        // Add to local drawing history if not already there
-                        if (!drawingHistory.contains(drawMsg)) {
-                            drawingHistory.add(drawMsg);
+                        // Handle CLEAR messages
+                        if (messageType == Message.MessageType.CLEAR && 
+                            content.contains("CLEAR_ALL")) {
+                            drawingHistory.clear();
+                            drawingHistory.add(msg);
                         }
+                    }
+                } catch (Exception e) {
+                    logMessage("Error processing history line: " + e.getMessage());
+                }
+            }
+            
+            logMessage("History processing complete. Drawing history: " + drawingHistory.size() + 
+                       " items, Text history: " + textHistory.size() + " items");
+        }
+
+        /**
+         * Handle a replication message from the leader
+         * Format: REPLICATE:TYPE:CONTENT:SENDER_ID:TIMESTAMP
+         */
+        private void handleReplicationMessage(String stringMessage) {
+            try {
+                String[] parts = stringMessage.split(":", 5);
+                if (parts.length < 5) {
+                    logMessage("Invalid replication message format: " + stringMessage);
+                    return;
+                }
+                
+                String messageType = parts[1];
+                String content = parts[2];
+                String senderId = parts[3];
+                long timestamp = Long.parseLong(parts[4]);
+                
+                Message.MessageType type = null;
+                if (messageType.equals("DRAW")) {
+                    type = Message.MessageType.DRAW;
+                } else if (messageType.equals("CLEAR")) {
+                    type = Message.MessageType.CLEAR;
+                } else if (messageType.equals("TEXT")) {
+                    type = Message.MessageType.TEXT;
+                }
+                
+                if (type != null) {
+                    // Create the message
+                    Message msg = new Message(type, content, senderId, timestamp);
+                    
+                    // Store in appropriate history collection
+                    if (type == Message.MessageType.TEXT) {
+                        textHistory.add(msg);
+                    } else {
+                        drawingHistory.add(msg);
                         
                         // If it's a clear message, remove all drawing actions
-                        if (drawMsg.getType() == Message.MessageType.CLEAR) {
-                            drawingHistory.removeIf(m -> m.getType() == Message.MessageType.DRAW);
+                        if (type == Message.MessageType.CLEAR && 
+                            content.contains("CLEAR_ALL")) {
+                            drawingHistory.clear();
+                            drawingHistory.add(msg); // Keep the clear message
                         }
-                        
-                        // Forward to connected clients
-                        for (ClientHandler client : connectedClients) {
-                            client.sendMessage(drawMsg);
-                        }
+                    }
+                    
+                    // Save to local database
+                    appendToLocalDatabase(msg);
+                    
+                    // Forward to any connected clients
+                    for (ClientHandler client : connectedClients) {
+                        client.sendMessage(msg);
                     }
                 }
             } catch (Exception e) {
-                logMessage("Error processing drawing message: " + e.getMessage());
+                logMessage("Error handling replication message: " + e.getMessage());
             }
         }
         
@@ -1397,8 +1538,6 @@ public class Server {
                 }
             }
         }
-
-        
         
         /**
          * Closes the connection and cleans up resources.
@@ -1423,7 +1562,6 @@ public class Server {
                 logMessage("Error closing connection resources: " + e.getMessage());
             } catch (Exception e2){
                 logMessage("Error closing connection resources (E2): " + e2.getMessage());
-
             }
             
             serverConnections.remove(this);
