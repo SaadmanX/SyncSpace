@@ -1288,6 +1288,9 @@ public class Server {
                     logServerState();
                 }
                 else if (stringMessage.startsWith("DRAWING:")) {
+                    logMessage("this is what we get back from the server-----------");
+                    logMessage(stringMessage);
+                    logMessage("++++++++");
                     // Handle drawing replication from leader
                     String drawingPart = stringMessage.substring("DRAWING:".length());
                     Object drawObj = deserializeDrawingMessage(drawingPart);
