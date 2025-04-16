@@ -807,7 +807,7 @@ public class Server {
             Message msg = (Message) message;
             if (msg.getType() == Message.MessageType.DRAW || 
                 msg.getType() == Message.MessageType.CLEAR || msg.getType() == Message.MessageType.TEXT) {
-                    writeActionToFile(msg.toString());
+                    writeActionToFile(msg);
                     logMessage("---- this is the message we should see ------");
                     logMessage(msg.toString());
                     logMessage("--------------");
@@ -947,11 +947,10 @@ public class Server {
      * Writes a message action to the server's local log file.
      * Uses open-write-close pattern for simplicity.
      */
-    private void writeActionToFile(String strmessage) {
+    private void writeActionToFile(Message message) {
         synchronized (fileAccessLock) {
             try (java.io.FileWriter fw = new java.io.FileWriter(getFilename(), true)) {
                 // For drawing actions, extract the actual action type from content
-                Message message = parseActionLine(strmessage);
 
                 String typeStr;
                 String content = message.getContent();
@@ -1422,7 +1421,7 @@ public class Server {
                     Message textMsg = (Message) textObj;
                     if(textMsg.getType() == MessageType.TEXT){
 
-                        writeActionToFile(textMsg.toString());
+                        writeActionToFile(textMsg);
                         logMessage("---- this is the message we should see ------");
                         logMessage(textMsg.toString());
                         logMessage("--------------");
@@ -1451,7 +1450,8 @@ public class Server {
                     if (drawMsg.getType() == Message.MessageType.DRAW || 
                         drawMsg.getType() == Message.MessageType.CLEAR) {
                         
-                        writeActionToFile(drawMsg.getContent());
+                        Message submessage = parseActionLine(drawMsg.getContent());
+                        writeActionToFile(submessage);
                         logMessage("---- this is the message we should see ------");
                         logMessage(drawMsg.toString());
                         logMessage("--------------");
