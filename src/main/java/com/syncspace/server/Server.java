@@ -837,7 +837,7 @@ public class Server {
         logMessage("should have left+++++++++++++++");
         for (ServerConnection conn : new ArrayList<>(serverConnections)) {
             if (conn.getType() == ServerConnectionType.FOLLOWER) {
-                conn.sendMessage("DRAWING:" + drawingMessage);
+                conn.sendMessage("ACTION:" + drawingMessage);
             }
         }
     }
@@ -1287,21 +1287,23 @@ public class Server {
                     sendFollowersToConnections();
                     logServerState();
                 }
-                else if (stringMessage.startsWith("DRAWING:")) {
+                else if (stringMessage.startsWith("ACTION:")) {
                     logMessage("this is what we get back from the server-----------");
                     logMessage(stringMessage);
                     logMessage("++++++++");
                     // Handle drawing replication from leader
-                    String drawingPart = stringMessage.substring("DRAWING:".length());
-                    Message drawMsg = Message.fromString(drawingPart);
-                    handleDrawingMessage(drawMsg);
+                    String actionpart = stringMessage.substring("DRAWING:".length());
+                    Message actmsg = Message.fromString(actionpart);
+                    handleActionMessage(actmsg);
                 }
-                else if (stringMessage.startsWith("TEXT")) {
-                    logMessage("DEBUG:::::" + stringMessage);
-                    // Handle text message - not implemented in this code
-                    Message textmsg = Message.fromString(stringMessage);
-                    handleClientTextMessage(textmsg);
-                } 
+                // else if (stringMessage.startsWith("TEXT")) {
+                //     logMessage("DEBUG:::::" + stringMessage);
+                //     // Handle text message - not implemented in this code
+                //     String textpart = stringMessage.substring("TEXT:".length());
+
+                //     Message textmsg = Message.fromString(textpart);
+                //     handleClientTextMessage(textmsg);
+                // } 
                 else if (stringMessage.startsWith("FOLLOWER_SHUTDOWN:")) {
                     String followerIp = stringMessage.substring("FOLLOWER_SHUTDOWN:".length());
                     followerIps.remove(followerIp);
@@ -1444,23 +1446,23 @@ public class Server {
         /**
          * Handles drawing replication messages from the leader.
          */
-        private void handleDrawingMessage(Message drawMsg) {
+        private void handleActionMessage(Message actMsg) {
             try {
                 // String drawingPart = stringMessage.substring(8);
                 // Object drawObj = deserializeDrawingMessage(drawingPart);
                 // if (drawObj instanceof Message) {
                     // Message drawMsg = (Message) drawObj;
-                    if (drawMsg.getType() == Message.MessageType.DRAW || 
-                        drawMsg.getType() == Message.MessageType.CLEAR) {
+                    if (actMsg.getType() == Message.MessageType.DRAW || 
+                    actMsg.getType() == Message.MessageType.CLEAR || actMsg.getType() == Message.MessageType.TEXT) {
                         
-                        writeActionToFile(drawMsg);
+                        writeActionToFile(actMsg);
                         logMessage("---- this is the message we should see ------");
-                        logMessage(drawMsg.toString());
+                        logMessage(actMsg.toString());
                         logMessage("--------------");
     
                         // Forward to connected clients
                         for (ClientHandler client : connectedClients) {
-                            client.sendMessage(drawMsg);
+                            client.sendMessage(actMsg);
                         }
                     }
                 // }
