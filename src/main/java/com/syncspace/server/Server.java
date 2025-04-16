@@ -1293,7 +1293,7 @@ public class Server {
                     logMessage(stringMessage);
                     logMessage("++++++++");
                     // Handle drawing replication from leader
-                    String actionpart = stringMessage.substring("DRAWING:".length());
+                    String actionpart = stringMessage.substring("ACTION:".length());
                     Message actmsg = Message.fromString(actionpart);
                     handleActionMessage(actmsg);
                 }
