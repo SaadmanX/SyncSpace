@@ -862,6 +862,7 @@ public class Server {
                 
                 logMessage("inside the lock. should start sending serially");
                 while ((line = reader.readLine()) != null) {
+                    logMessage(line);
                     Message msg = parseActionLine(line);
                     
                     // Skip null or non-drawing messages
