@@ -1386,7 +1386,7 @@ private void appendToLocalDatabase(Message message) {
                 }
                 else if (stringMessage.startsWith("REPLICATE:")) {
                     // Handle replication messages from the leader
-                    handleReplicationMessage(stringMessage);
+                    handleReplicationMessage(stringMessage.substring("REPLICATE:".length()));
                 }
                 else if (stringMessage.startsWith("FOLLOWER_SHUTDOWN:")) {
                     String followerIp = stringMessage.substring("FOLLOWER_SHUTDOWN:".length());
@@ -1525,10 +1525,10 @@ private void appendToLocalDatabase(Message message) {
                     return;
                 }
                 
-                String messageType = parts[1];
-                String content = parts[2];
-                String senderId = parts[3];
-                long timestamp = Long.parseLong(parts[4]);
+                String messageType = parts[0];
+                String content = parts[1];
+                String senderId = parts[2];
+                long timestamp = Long.parseLong(parts[3]);
                 
                 Message.MessageType type = null;
                 if (messageType.equals("DRAW")) {
