@@ -227,10 +227,9 @@ public class WhiteboardClient {
         JToolBar toolBar = new JToolBar();
         toolBar.setFloatable(false);
         toolBar.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-
-        // Clear button with icon
-        JButton clearBtn = new JButton("Clear");
-        clearBtn.setIcon(new ImageIcon(getClass().getResource("/icons/clear.png")));
+    
+        // Clear button without icon
+        JButton clearBtn = new JButton("Clear Canvas");
         clearBtn.setToolTipText("Clear the entire whiteboard");
         clearBtn.addActionListener(e -> {
             logInfo("User clicked Clear button");
@@ -239,8 +238,8 @@ public class WhiteboardClient {
         });
         toolBar.add(clearBtn);
         toolBar.addSeparator();
-
-        // Color palette
+    
+        // Color palette with label
         toolBar.add(new JLabel(" Colors: "));
         addColorButton(toolBar, new Color(0, 0, 0), "Black");
         addColorButton(toolBar, new Color(231, 76, 60), "Red");
@@ -248,13 +247,13 @@ public class WhiteboardClient {
         addColorButton(toolBar, new Color(46, 204, 113), "Green");
         addColorButton(toolBar, new Color(230, 126, 34), "Orange");
         toolBar.addSeparator();
-
-        // Brush sizes with visual representation
+    
+        // Brush sizes with label
         toolBar.add(new JLabel(" Brush Size: "));
         addStrokeButton(toolBar, 2, "Small");
         addStrokeButton(toolBar, 5, "Medium");
         addStrokeButton(toolBar, 8, "Large");
-
+    
         return toolBar;
     }
 
