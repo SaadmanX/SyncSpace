@@ -915,20 +915,25 @@ public class Server {
      */
     private Message parseActionLine(String line) {
         try {
+            logMessage("trying to parse this line: " + line);
             if (line.trim().isEmpty()) return null;
             
             String[] mainParts = line.split(";", 2);
+            logMessage("main parts: " + mainParts);
             if (mainParts.length < 2) return null;
             
             String actionData = mainParts[0];
+            logMessage("action data: " + actionData);
             String senderId = mainParts[1].split(":")[0];
+            logMessage("senderid: " + senderId);
             long timestamp = Long.parseLong(mainParts[1].split(":")[1]);
-            
-            String[] dataParts = actionData.split(":", 3);
+            logMessage("time stamp: " + timestamp);
             // if (dataParts.length < 3) return null;
             
-            String typeStr = dataParts[0].trim();
+            String typeStr = actionData.split(":")[0].trim();
+            logMessage("typestr: " + typeStr);
             String content = actionData;
+            logMessage("content: " + content);
             
             MessageType messageType;
             if (typeStr.equals("DRAW") || typeStr.equals("START") || typeStr.equals("END")) {
