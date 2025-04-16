@@ -1,6 +1,5 @@
 com/syncspace/server/ClientHandler.class
 com/syncspace/server/Database.class
-com/syncspace/client/ui/WhiteboardPanel$1.class
 com/syncspace/common/Message.class
 com/syncspace/server/Server$ServerConnection.class
 com/syncspace/client/WhiteboardClient$1.class
@@ -9,6 +8,7 @@ com/syncspace/common/User.class
 com/syncspace/client/WhiteboardClient$2.class
 com/syncspace/server/Server$ServerConnectionType.class
 com/syncspace/client/WhiteboardClient.class
+com/syncspace/client/ui/ChatPanel$2.class
 com/syncspace/common/WhiteboardAction.class
 com/syncspace/server/Server$ConnectionMessage.class
 com/syncspace/client/ui/ChatPanel.class
@@ -19,3 +19,4 @@ com/syncspace/server/Server.class
 com/syncspace/server/Server$1.class
 com/syncspace/client/ui/WhiteboardPanel.class
 com/syncspace/common/Message$MessageType.class
+com/syncspace/client/WhiteboardClient$4.class

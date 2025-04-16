@@ -5,6 +5,8 @@ import com.syncspace.client.ui.WhiteboardPanel;
 import com.syncspace.common.Message;
 
 import javax.swing.*;
+import javax.swing.border.EmptyBorder;
+
 import java.awt.*;
 import java.awt.event.*;
 import java.io.IOException;
@@ -125,34 +127,195 @@ public class WhiteboardClient {
 
     private void initializeUI() {
         logInfo("Initializing UI components");
+        
+        // Set a nicer look and feel
+        try {
+            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+        } catch (Exception e) {
+            logError("Could not set system look and feel", e);
+        }
+        
+        // Create main frame with improved styling
         frame = new JFrame("SyncSpace");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
-        frame.setLayout(new BorderLayout());
-
+        frame.setSize(1200, 700);
+        frame.setMinimumSize(new Dimension(900, 600));
+        frame.setLayout(new BorderLayout(5, 5));
+        ((JComponent)frame.getContentPane()).setBorder(new EmptyBorder(10, 10, 10, 10));
+        
+        // Create a title panel
+        JPanel titlePanel = new JPanel(new BorderLayout());
+        titlePanel.setBackground(new Color(245, 245, 245));
+        titlePanel.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(220, 220, 220)),
+            new EmptyBorder(0, 0, 10, 0)
+        ));
+        
+        JLabel titleLabel = new JLabel("SyncSpace Collaborative Whiteboard");
+        titleLabel.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 18));
+        titleLabel.setBorder(new EmptyBorder(5, 10, 5, 10));
+        titlePanel.add(titleLabel, BorderLayout.WEST);
+        
         // Create toolbar with drawing options
-        JToolBar toolBar = new JToolBar();
-        JButton clearBtn = new JButton("Clear");
-        clearBtn.addActionListener(e -> {
-            logInfo("User clicked Clear button");
-            whiteboardPanel.clearCanvas();
-            sendClearAction(0);
-        });
-        toolBar.add(clearBtn);
-        frame.add(toolBar, BorderLayout.NORTH);
-
+        JToolBar toolBar = createToolbar();
+        titlePanel.add(toolBar, BorderLayout.EAST);
+        frame.add(titlePanel, BorderLayout.NORTH);
+        
+        // Create the main content panel (whiteboard + chat)
+        JPanel contentPanel = new JPanel(new BorderLayout(10, 0));
+        contentPanel.setBackground(Color.WHITE);
+        
         // Create whiteboard panel (main drawing area)
         whiteboardPanel = new WhiteboardPanel();
-        frame.add(whiteboardPanel, BorderLayout.CENTER);
-
+        
+        // Add whiteboard to a scroll pane with better styling
+        JScrollPane whiteboardScrollPane = new JScrollPane(whiteboardPanel);
+        whiteboardScrollPane.setBorder(BorderFactory.createLineBorder(new Color(220, 220, 220), 1));
+        whiteboardScrollPane.setBackground(Color.WHITE);
+        contentPanel.add(whiteboardScrollPane, BorderLayout.CENTER);
+        
         // Create chat panel
         chatPanel = new ChatPanel();
-        chatPanel.setPreferredSize(new Dimension(250, frame.getHeight()));
-        frame.add(chatPanel, BorderLayout.EAST);
-
+        contentPanel.add(chatPanel, BorderLayout.EAST);
+        
+        frame.add(contentPanel, BorderLayout.CENTER);
+        
+        // Add status bar at the bottom
+        JPanel statusBar = new JPanel(new BorderLayout());
+        statusBar.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(220, 220, 220)),
+            new EmptyBorder(5, 10, 5, 10)
+        ));
+        statusBar.setBackground(new Color(245, 245, 245));
+        
+        JLabel statusLabel = new JLabel("Connected as: " + username);
+        statusLabel.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+        statusBar.add(statusLabel, BorderLayout.WEST);
+        
+        frame.add(statusBar, BorderLayout.SOUTH);
+        
+        // Center the frame on screen
+        frame.setLocationRelativeTo(null);
         frame.setVisible(true);
         logInfo("UI initialization complete");
     }
+
+    private JToolBar createToolbar() {
+        JToolBar toolBar = new JToolBar();
+        toolBar.setFloatable(false);
+        toolBar.setBorder(new EmptyBorder(5, 5, 5, 5));
+        toolBar.setBackground(new Color(245, 245, 245));
+        
+        // Create a better-looking clear button
+        JButton clearBtn = createStyledButton("Clear Whiteboard", new Color(66, 134, 244));
+        clearBtn.addActionListener(e -> {
+            int confirm = JOptionPane.showConfirmDialog(
+                frame,
+                "Are you sure you want to clear the whiteboard?",
+                "Confirm Clear",
+                JOptionPane.YES_NO_OPTION
+            );
+            
+            if (confirm == JOptionPane.YES_OPTION) {
+                logInfo("User clicked Clear button");
+                whiteboardPanel.clearCanvas();
+                sendClearAction(0);
+            }
+        });
+        toolBar.add(clearBtn);
+        toolBar.addSeparator(new Dimension(10, 24));
+        
+        // Add color selection button
+        Color[] colors = {
+            Color.BLACK, Color.BLUE, Color.RED, Color.GREEN, 
+            Color.MAGENTA, Color.ORANGE, Color.CYAN, Color.PINK
+        };
+        String[] colorNames = {
+            "Black", "Blue", "Red", "Green", 
+            "Magenta", "Orange", "Cyan", "Pink"
+        };
+        
+        JComboBox<String> colorSelector = new JComboBox<>(colorNames);
+        colorSelector.setMaximumSize(new Dimension(120, 30));
+        colorSelector.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 13));
+        colorSelector.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(new Color(200, 200, 200), 1),
+            BorderFactory.createEmptyBorder(4, 4, 4, 4)
+        ));
+        colorSelector.addActionListener(e -> {
+            int selected = colorSelector.getSelectedIndex();
+            if (selected >= 0 && selected < colors.length) {
+                whiteboardPanel.setColor(colors[selected]);
+            }
+        });
+        
+        JLabel colorLabel = new JLabel("Brush Color: ");
+        colorLabel.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 13));
+        toolBar.add(colorLabel);
+        toolBar.add(colorSelector);
+        toolBar.addSeparator(new Dimension(10, 24));
+        
+        // Add stroke size selector
+        Integer[] strokeSizes = {1, 2, 3, 5, 8, 12};
+        JComboBox<Integer> strokeSelector = new JComboBox<>(strokeSizes);
+        strokeSelector.setSelectedIndex(1); // Default to 2px stroke
+        strokeSelector.setMaximumSize(new Dimension(80, 30));
+        strokeSelector.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 13));
+        strokeSelector.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(new Color(200, 200, 200), 1),
+            BorderFactory.createEmptyBorder(4, 4, 4, 4)
+        ));
+        strokeSelector.addActionListener(e -> {
+            int selected = (Integer) strokeSelector.getSelectedItem();
+            whiteboardPanel.setStrokeSize(selected);
+        });
+        
+        JLabel strokeLabel = new JLabel("Brush Size: ");
+        strokeLabel.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 13));
+        toolBar.add(strokeLabel);
+        toolBar.add(strokeSelector);
+        
+        return toolBar;
+    }
+    
+    // Helper method to create consistently styled buttons
+    private JButton createStyledButton(String text, Color bgColor) {
+        JButton button = new JButton(text);
+        button.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 13));
+        button.setBackground(bgColor);
+        button.setForeground(Color.WHITE);
+        button.setBorder(BorderFactory.createEmptyBorder(8, 15, 8, 15));
+        button.setFocusPainted(false);
+        
+        // Make the button look nicer when hovered and pressed
+        button.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                button.setBackground(bgColor.darker());
+            }
+            
+            @Override
+            public void mouseExited(MouseEvent e) {
+                button.setBackground(bgColor);
+            }
+            
+            @Override
+            public void mousePressed(MouseEvent e) {
+                button.setBackground(bgColor.darker().darker());
+            }
+            
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                button.setBackground(bgColor);
+            }
+        });
+        
+        return button;
+    }
+    
+
+
+
 
     private void setupEventHandlers() {
         logInfo("Setting up event handlers");
