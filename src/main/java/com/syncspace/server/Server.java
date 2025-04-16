@@ -301,7 +301,7 @@ private void appendToLocalDatabase(Message message) {
             }
             
             // Format: TYPE:CONTENT:TIMESTAMP
-            String dbEntry = content + ":" + message.getTimestamp() + "\n";
+            String dbEntry = type + ":" + content + ":" + message.getTimestamp() + "\n";
             fw.write(dbEntry);
             
             logMessage("Successfully wrote to local database: " + dbEntry.trim());
