@@ -963,22 +963,31 @@ public class Server {
                     // Extract the action type from the content
                     if (content.startsWith("START:")) {
                         typeStr = "START";
-                        content = content.substring(6); // Remove "START:" prefix
+                        content = content.substring("START:".length()); // Remove "START:" prefix
                     } else if (content.startsWith("DRAW:")) {
                         typeStr = "DRAW";
-                        content = content.substring(5); // Remove "DRAW:" prefix
+                        content = content.substring("DRAW:".length()); // Remove "DRAW:" prefix
                     } else if (content.startsWith("END:")) {
                         typeStr = "END";
-                        content = content.substring(4); // Remove "END:" prefix
+                        content = content.substring("END:".length()); // Remove "END:" prefix
                     } else {
                         typeStr = "DRAW"; // Default
                     }
+                } else if (message.getType() == Message.MessageType.CLEAR) {
+                    typeStr = "CLEAR";
+                    content = content.substring("CLEAR:".length()); // Remove "START:" prefix
+                } else if (message.getType() == Message.MessageType.TEXT) {
+                    typeStr = "TEXT";
+                    content = content.substring("TEXT:".length()); // Remove "START:" prefix
                 } else {
-                    typeStr = message.getType().toString();
+                    typeStr = "ERROR";
                 }
                 
                 // Write in original format: TYPE:CONTENT:TIMESTAMP;SENDER_ID
                 String actionData = typeStr + ":" + content + ":" + message.getTimestamp() + ";" + message.getSenderId() + "\n";
+                logMessage("WRITING THIS TO FILE==========");
+                logMessage(actionData);
+                logMessage("DONE WRITING");
                 fw.write(actionData);
             } catch (IOException e) {
                 logMessage("Error writing to action file: " + e.getMessage());
