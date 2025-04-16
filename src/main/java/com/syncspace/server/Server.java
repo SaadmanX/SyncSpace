@@ -1286,7 +1286,13 @@ public class Server {
                 }
                 else if (stringMessage.startsWith("DRAWING:")) {
                     // Handle drawing replication from leader
-                    handleDrawingMessage(stringMessage);
+                    String drawingPart = stringMessage.substring(8);
+                    Object drawObj = deserializeDrawingMessage(drawingPart);
+                    if (drawObj instanceof Message) {
+                        Message drawMsg = (Message) drawObj;
+
+                        handleDrawingMessage(drawMsg);
+                    }
                 }
                 else if (stringMessage.startsWith("TEXT")) {
                     logMessage("DEBUG:::::" + stringMessage);
@@ -1441,19 +1447,19 @@ public class Server {
         /**
          * Handles drawing replication messages from the leader.
          */
-        private void handleDrawingMessage(String stringMessage) {
+        private void handleDrawingMessage(Message drawMsg) {
             try {
-                String drawingPart = stringMessage.substring(8);
-                Object drawObj = deserializeDrawingMessage(drawingPart);
-                if (drawObj instanceof Message) {
-                    Message drawMsg = (Message) drawObj;
+                // String drawingPart = stringMessage.substring(8);
+                // Object drawObj = deserializeDrawingMessage(drawingPart);
+                // if (drawObj instanceof Message) {
+                    // Message drawMsg = (Message) drawObj;
                     if (drawMsg.getType() == Message.MessageType.DRAW || 
                         drawMsg.getType() == Message.MessageType.CLEAR) {
                         
                         Message submessage = parseActionLine(drawMsg.getContent());
-                        writeActionToFile(drawMsg);
+                        writeActionToFile((Message) deserializeDrawingMessage(drawMsg.getContent()));
                         logMessage("---- this is the message we should see ------");
-                        logMessage(drawMsg.toString());
+                        logMessage(((Message) deserializeDrawingMessage(drawMsg.getContent())).toString());
                         logMessage("--------------");
     
                         // Forward to connected clients
@@ -1461,7 +1467,7 @@ public class Server {
                             client.sendMessage(drawMsg);
                         }
                     }
-                }
+                // }
             } catch (Exception e) {
                 logMessage("Error processing drawing message: " + e.getMessage());
             }
