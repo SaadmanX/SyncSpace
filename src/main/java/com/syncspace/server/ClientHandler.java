@@ -82,7 +82,7 @@ public class ClientHandler extends Thread {
                     System.out.println("User " + username + " connected");
                     
                     // Send drawing history to the new client
-                    server.sendDrawingHistoryToClient(this);
+                    server.sendActionHistoryToClient(this);
                     
                     // Send follower list to the new client if the server is a leader
                     if (server.isLeader()) {

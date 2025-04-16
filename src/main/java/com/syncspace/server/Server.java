@@ -56,7 +56,7 @@ public class Server {
     
     // Connection management
     private final List<ServerConnection> serverConnections = new CopyOnWriteArrayList<>();
-    private ServerConnection dbConn;
+    private final String filename = "database";
     private final List<String> followerIps = new CopyOnWriteArrayList<>();
     private final BlockingQueue<ConnectionMessage> messageQueue = new PriorityBlockingQueue<>(1000, 
         (msg1, msg2) -> {
@@ -77,17 +77,14 @@ public class Server {
     private ServerSocket clientServerSocket;
     private ServerSocket serverServerSocket;
     private final Object connectLock = new Object();
+    private final Object fileAccessLock = new Object();
+
     private volatile boolean connectingToLeader = false;
     private ScheduledFuture<?> leaderConnectFuture = null;
     private ScheduledFuture<?> leaderHeartbeatFuture = null;
     private static final int HEARTBEAT_INTERVAL_MS = 2000; // 2 seconds
     private static final int HEARTBEAT_TIMEOUT_MS = 6000; // 6 seconds
     private volatile long lastLeaderHeartbeat = 0;
-
-
-    // Drawing state
-    private final List<Message> drawingHistory = new CopyOnWriteArrayList<>();
-    private final List<Message> textHistory = new CopyOnWriteArrayList<>();
     
     /**
      * Message container for the connection processing queue.
@@ -146,56 +143,13 @@ public class Server {
                 TimeUnit.SECONDS
             );
         
-            startDBConn();
-            startServerToServerListener();
+            startLeaderMode();
             startClientListener();
         } else {
-            connectToLeader();
+            startFollowerMode();
         }
     }
 
-    /**
-     * Starts database connection asynchronously.
-     */
-    private void startDBConn() {
-        if (!isLeader()) return;
-        
-        taskExecutor.execute(() -> {
-            int retryCount = 0;
-            final int maxRetries = 5;
-            final int retryDelayMs = 2000;
-            
-            while (retryCount < maxRetries && running) {
-                try {
-                    logMessage("Attempting database connection to 10.59.174.192:1500 (Attempt " + (retryCount + 1) + ")");
-                    Socket dbSocket = new Socket("10.59.174.192", 1500);
-                    logMessage("Leader connected to database successfully");
-                    
-                    // Create and initialize connection
-                    dbConn = new ServerConnection(dbSocket, "10.59.174.192", ServerConnectionType.DATABASE);
-                    serverConnections.add(dbConn);  // Add this line to register the connection
-                    dbConn.start();
-                    
-                    // Successfully connected
-                    return;
-                    
-                } catch (IOException e) {
-                    retryCount++;
-                    logMessage("ERROR connecting to database: " + e.getMessage() + 
-                            (retryCount < maxRetries ? " Will retry in " + (retryDelayMs/1000) + " seconds." : " Giving up after " + retryCount + " attempts."));
-                    
-                    try {
-                        // Wait before retrying
-                        Thread.sleep(retryDelayMs);
-                    } catch (Exception ie) {
-                        ie.printStackTrace();
-                    }
-                }
-            }
-            
-            logMessage("Could not establish database connection after " + maxRetries + " attempts. Server will run without database integration.");
-        });
-    }    
     /**
      * Gets the local server IP address.
      * @return Local IP address string
@@ -526,7 +480,7 @@ public class Server {
     /**
      * Starts the server-to-server listener (leader mode).
      */
-    private void startServerToServerListener() {
+    private void startLeaderMode() {
         if (!isLeader()) return;
         
         taskExecutor.execute(() -> {
@@ -568,7 +522,7 @@ public class Server {
     /**
      * Connects to the leader server (follower mode).
      */
-    private void connectToLeader() {
+    private void startFollowerMode() {
         // If already leader or a connection attempt is in progress, return.
 
         if (isLeader()) return;
@@ -787,7 +741,6 @@ public class Server {
         logMessage("Removed self from follower list: " + serverIp);
 
         actingAsLeader.set(true);
-        // sendFollowersToConnections();
         
         // Notify clients of leadership change
         for (ClientHandler client : connectedClients) {
@@ -795,8 +748,7 @@ public class Server {
             client.sendMessage("NEW_LEADER_IP" + serverIp);
         }
         
-        startDBConn();
-        startServerToServerListener();
+        startLeaderMode();
         startClientListener();
         
         logMessage("Successfully transitioned to leader mode");
@@ -856,12 +808,8 @@ public class Server {
             Message msg = (Message) message;
             if (msg.getType() == Message.MessageType.DRAW || 
                 msg.getType() == Message.MessageType.CLEAR || msg.getType() == Message.MessageType.TEXT) {
-                drawingHistory.add(msg);
-                
-                if (dbConn != null) {
-                    dbConn.sendMessage(msg);
-                }
-                    
+                    writeActionToFile(msg);
+                                    
                 // If leader, replicate drawing history to followers
                 if (isLeader()) {
                     replicateDrawingToFollowers(msg);
@@ -890,17 +838,51 @@ public class Server {
     }
     
     /**
-     * Sends the entire drawing history to a specific client.
+     * Sends the entire drawing history to a specific client, sorted by sender and timestamp.
      */
-    public void sendDrawingHistoryToClient(ClientHandler client) {
-        logMessage("Sending drawing history to new client. History size: " + drawingHistory.size());
+    public void sendActionHistoryToClient(ClientHandler client) {
+        logMessage("Sending drawing history to new client. Sorting by sender ID and timestamp");
         
         // First, send a message to clear any existing content
         client.sendMessage(new Message(Message.MessageType.CLEAR, "CLEAR_ALL", "SERVER", getCurrentTime()));
         
+        // Read all actions from file and parse them
+        List<Message> actionsToSend = new ArrayList<>();
+        
+        synchronized(fileAccessLock) { // Add this lock as a class field
+            try (java.io.BufferedReader reader = new java.io.BufferedReader(
+                    new java.io.FileReader(filename))) {
+                String line;
+                
+                while ((line = reader.readLine()) != null) {
+                    Message msg = parseActionLine(line);
+                    
+                    // Skip null or non-drawing messages
+                    if (msg == null) continue;
+                    
+                    // Only collect drawing-related messages
+                    if (msg.getType() == Message.MessageType.DRAW || 
+                        msg.getType() == Message.MessageType.CLEAR) {
+                        
+                        // If it's a clear message, clear all previous actions
+                        if (msg.getType() == Message.MessageType.CLEAR && 
+                            msg.getContent().contains("CLEAR_ALL")) {
+                            actionsToSend.clear();
+                        }
+                        
+                        actionsToSend.add(msg);
+                    }
+                }
+            } catch (IOException e) {
+                // If file doesn't exist, just ignore
+                if (!(e instanceof java.io.FileNotFoundException)) {
+                    logMessage("Error reading action file: " + e.getMessage());
+                }
+            }
+        }
+        
         // Sort drawing history by sender ID first, then by timestamp
-        List<Message> sortedHistory = new ArrayList<>(drawingHistory);
-        sortedHistory.sort((m1, m2) -> {
+        actionsToSend.sort((m1, m2) -> {
             // First compare by sender ID
             int senderCompare = m1.getSenderId().compareTo(m2.getSenderId());
             if (senderCompare != 0) {
@@ -911,11 +893,136 @@ public class Server {
             return Long.compare(m1.getTimestamp(), m2.getTimestamp());
         });
         
-        // Then send all drawing actions with their original timestamps
-        for (Message drawAction : sortedHistory) {
-            client.sendMessage(drawAction);
+        // Send the sorted actions to the client
+        logMessage("Sending " + actionsToSend.size() + " sorted drawing actions to new client");
+        for (Message action : actionsToSend) {
+            client.sendMessage(action);
         }
     }
+    
+
+    /**
+     * Parses a single action line from history file
+     */
+    private Message parseActionLine(String line) {
+        try {
+            if (line.trim().isEmpty()) return null;
+            
+            String[] mainParts = line.split(";", 2);
+            if (mainParts.length < 2) return null;
+            
+            String actionData = mainParts[0];
+            String senderId = mainParts[1];
+            
+            String[] dataParts = actionData.split(":", 3);
+            if (dataParts.length < 3) return null;
+            
+            String typeStr = dataParts[0].trim();
+            String content = dataParts[1].trim();
+            long timestamp = Long.parseLong(dataParts[2].trim());
+            
+            MessageType messageType;
+            if (typeStr.equals("DRAW") || typeStr.equals("START") || typeStr.equals("END")) {
+                messageType = MessageType.DRAW;
+                content = typeStr + ":" + content;
+            } else if (typeStr.equals("CLEAR")) {
+                messageType = MessageType.CLEAR;
+            } else if (typeStr.equals("TEXT")) {
+                messageType = MessageType.TEXT;
+            } else {
+                return null;
+            }
+            
+            return new Message(messageType, content, senderId, timestamp);
+        } catch (Exception e) {
+            logMessage("Error parsing action line: " + line + " - " + e.getMessage());
+            return null;
+        }
+    }
+    
+
+    /**
+     * Writes a message action to the server's local log file.
+     * Uses open-write-close pattern for simplicity.
+     */
+    /**
+     * Writes a single action to the file
+     */
+    private void writeActionToFile(Message message) {
+        synchronized (fileAccessLock) {
+            try (java.io.FileWriter fw = new java.io.FileWriter(filename, true)) {
+                // For drawing actions, extract the actual action type from content
+                String typeStr;
+                String content = message.getContent();
+                
+                if (message.getType() == Message.MessageType.DRAW) {
+                    // Extract the action type from the content
+                    if (content.startsWith("START:")) {
+                        typeStr = "START";
+                        content = content.substring(6); // Remove "START:" prefix
+                    } else if (content.startsWith("DRAW:")) {
+                        typeStr = "DRAW";
+                        content = content.substring(5); // Remove "DRAW:" prefix
+                    } else if (content.startsWith("END:")) {
+                        typeStr = "END";
+                        content = content.substring(4); // Remove "END:" prefix
+                    } else {
+                        typeStr = "DRAW"; // Default
+                    }
+                } else {
+                    typeStr = message.getType().toString();
+                }
+                
+                // Write in original format: TYPE:CONTENT:TIMESTAMP;SENDER_ID
+                String actionData = typeStr + ":" + content + ":" + message.getTimestamp() + ";" + message.getSenderId() + "\n";
+                fw.write(actionData);
+            } catch (IOException e) {
+                logMessage("Error writing to action file: " + e.getMessage());
+            }
+        }
+    }
+    
+    private void writeActionsToFile(String actionHistory) {
+        if (actionHistory == null || actionHistory.trim().isEmpty()) {
+            logMessage("Empty action history, not writing to file");
+            return;
+        }
+        
+        synchronized(fileAccessLock) {
+            try (java.io.FileWriter fw = new java.io.FileWriter(filename, false)) { // false = overwrite
+                fw.write(actionHistory);
+                logMessage("Wrote " + actionHistory.split("\n").length + " actions to history file");
+            } catch (IOException e) {
+                logMessage("Error writing actions to file: " + e.getMessage());
+            }
+        }
+    }
+    
+    
+    
+    /**
+     * Reads the entire content of this server's action log file.
+     * @return The file content as a string, or empty string if file doesn't exist
+     */
+    private String readActionFile() {
+        StringBuilder content = new StringBuilder();
+        synchronized (fileAccessLock) {
+            try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(filename))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    content.append(line).append("\n");
+                }
+            } catch (IOException e) {
+                // If file doesn't exist yet, just return empty string
+                if (!(e instanceof java.io.FileNotFoundException)) {
+                    logMessage("Error reading action file: " + e.getMessage());
+                }
+            }
+        }
+        return content.toString();
+    }
+
+
                 
     /**
      * Checks if this server is the leader.
@@ -950,7 +1057,7 @@ public class Server {
             logMessage("Shutting down as LEADER");
             logMessage("Notifying followers of shutdown");
             for (ServerConnection conn : new ArrayList<>(serverConnections)) {
-                if (conn.getType() == ServerConnectionType.FOLLOWER || conn.getType() == ServerConnectionType.DATABASE) {
+                if (conn.getType() == ServerConnectionType.FOLLOWER) {
                     logMessage("Sending shutdown notice to " + conn.getType() + " at " + conn.getRemoteIp());
                     conn.sendMessage("LEADER_SHUTDOWN");
                 }
@@ -1071,8 +1178,7 @@ public class Server {
      */
     private enum ServerConnectionType {
         LEADER,
-        FOLLOWER,
-        DATABASE
+        FOLLOWER
     }
     
     /**
@@ -1109,6 +1215,10 @@ public class Server {
                 inputStream = new ObjectInputStream(socket.getInputStream());
                 
                 logMessage("Communication streams established with " + type.name().toLowerCase() + ": " + remoteIp);
+                        // Request action history if this is a connection to the leader
+                if (type == ServerConnectionType.LEADER) {
+                    sendMessage("REQUEST_ACTION_HISTORY");
+                }
             } catch (IOException e) {
                 String role = type == ServerConnectionType.LEADER ? "leader" : "follower";
                 logMessage("Error setting up connection to " + role + ": " + e.getMessage());
@@ -1196,18 +1306,17 @@ public class Server {
                         close();
                         startElection();
                     }
-                    else if (type == ServerConnectionType.DATABASE) {
-                        close();
+                }
+                else if (stringMessage.equals("REQUEST_ACTION_HISTORY")) {
+                    if (type == ServerConnectionType.FOLLOWER) {
+                        String actionHistory = readActionFile();
+                        sendMessage("ACTION_HISTORY:" + actionHistory);
                     }
                 }
-                else if (stringMessage.startsWith("ALLDRAW:")) {
-                    logMessage("attempting to remake history");
-                    String drawActions = stringMessage.substring("ALLDRAW:".length());
-                    updateDrawHistory(drawActions);
+                else if (stringMessage.startsWith("ACTION_HISTORY:")) {
+                    String actionHistory = stringMessage.substring("ACTION_HISTORY:".length());
+                    handleActionHistory(actionHistory);
                 }
-                else if (stringMessage.equals("DB_READY")) {
-                    dbConn.sendMessage("SERVER_READY");
-                }                
                 else {
                     // Other string messages
                     logMessage("Received message: " + stringMessage);
@@ -1218,83 +1327,57 @@ public class Server {
             }
         }
 
-        /**
-         * Updates the drawing history with actions received from the database.
-         * Each line in the input string represents a single drawing action.
-         * 
-         * @param drawActions String containing all drawing actions, each on a separate line
-         */
-        private void updateDrawHistory(String drawActions) {
-            // Clear existing history
-            drawingHistory.clear();
-            
-            // Handle empty or null input
-            if (drawActions == null || drawActions.trim().isEmpty()) {
-                logMessage("Received empty drawing history from database");
+        
+
+        private void handleActionHistory(String actionHistory) {
+            if (actionHistory == null || actionHistory.trim().isEmpty()) {
+                logMessage("Received empty action history");
                 return;
             }
             
-            // Split the actions by newline
-            String[] actions = drawActions.split("\n");
-            logMessage("Processing " + actions.length + " drawing actions from database");
+            // First, write the raw history to file
+            writeActionsToFile(actionHistory);
             
-            // Process each action
+            // Then process each line to send to connected clients
+            List<Message> actionsToSend = new ArrayList<>();
+            String[] actions = actionHistory.split("\n");
+            logMessage("Processing " + actions.length + " actions from history");
+            
             for (String action : actions) {
                 try {
-                    // Skip empty lines
-                    if (action.trim().isEmpty()) {
-                        continue;
-                    }
-                    
-                    // Parse the action format - expected format is "TYPE:DATA;USER"
-                    // For example: "DRAW:START:100,200;user123" or "CLEAR:CLEAR_ALL;SERVER"
-                    String[] parts = action.split(":");
-                    if (parts.length < 2) {
-                        logMessage("Invalid drawing action format: " + action);
-                        continue;
-                    }
-                    
-                    String typeStr = parts[0].trim();
-                    String content = parts[1].trim();
-                    String time = parts[2].trim();
-                    // Determine the message type
-                    Message.MessageType messageType = null;
-                    if (typeStr.equals("DRAW") || typeStr.equals("START") || typeStr.equals("END") ) {
-                        messageType = Message.MessageType.DRAW;
-                    } 
-                    else if (typeStr.equals("CLEAR")) {
-                        messageType = Message.MessageType.CLEAR;
+
+                    // Create a message and send to clients
+                    Message msg = parseActionLine(action);
+
+                    // Send to connected clients (for drawings/clears)
+                    if (msg == null) continue;
+            
+                    // Only process drawing-related messages
+                    if (msg.getType() == MessageType.DRAW || msg.getType() == MessageType.CLEAR) {
+                        // If we encounter a CLEAR_ALL, remove all previous drawing actions
+                        if (msg.getType() == MessageType.CLEAR && 
+                            msg.getContent().contains("CLEAR_ALL")) {
+                            logMessage("Found CLEAR_ALL action, clearing " + actionsToSend.size() + " previous actions");
+                            actionsToSend.clear();
+                        }
                         
-                        // If this is a clear command, we should remove previous draw actions
-                        if (content.contains("CLEAR_ALL")) {
-                            drawingHistory.removeIf(m -> m.getType() == Message.MessageType.DRAW);
-                        }
-                    } else {
-                        messageType = Message.MessageType.TEXT;
+                        // Add this action to our collection
+                        actionsToSend.add(msg);
                     }
-                    
-                    // Extract user ID from content if it contains a semicolon
-                    String senderId = "SERVER";  // Default sender
-                    if (content.contains(";")) {
-                        String[] contentParts = content.split(";", 2);
-                        content = contentParts[0];
-                        if (contentParts.length > 1) {
-                            senderId = contentParts[1];
-                        }
-                    }
-                    
-                    // Create message and add to history
-                    Message msg = new Message(messageType, typeStr + ":" + content, senderId, Long.parseLong(time));
-                    drawingHistory.add(msg);
-                    logMessage(msg.toString());
-                    
                 } catch (Exception e) {
-                    logMessage("Error parsing drawing action '" + action + "': " + e.getMessage());
+                    logMessage("Error processing history action: " + action + " - " + e.getMessage());
                 }
             }
             
-            logMessage("Successfully updated drawing history with " + drawingHistory.size() + " actions");
-        }   
+            logMessage("Sending " + actionsToSend.size() + " drawing actions to clients");
+            for (Message msg : actionsToSend) {
+                for (ClientHandler client : connectedClients) {
+                    client.sendMessage(msg);
+                }
+            }
+            
+            logMessage("Finished processing action history");
+        }        
 
         private Object deserializeTextMessage(String serialText){
             
@@ -1332,9 +1415,8 @@ public class Server {
                 if(textObj instanceof Message){
                     Message textMsg = (Message) textObj;
                     if(textMsg.getType() == MessageType.TEXT){
-                        if(!textHistory.contains(textMsg)){
-                            textHistory.add(textMsg);
-                        }
+
+                        writeActionToFile(textMsg);
 
                         for(ClientHandler client : connectedClients){
                             client.sendMessage(textMsg);
@@ -1360,15 +1442,7 @@ public class Server {
                     if (drawMsg.getType() == Message.MessageType.DRAW || 
                         drawMsg.getType() == Message.MessageType.CLEAR) {
                         
-                        // Add to local drawing history if not already there
-                        if (!drawingHistory.contains(drawMsg)) {
-                            drawingHistory.add(drawMsg);
-                        }
-                        
-                        // If it's a clear message, remove all drawing actions
-                        if (drawMsg.getType() == Message.MessageType.CLEAR) {
-                            drawingHistory.removeIf(m -> m.getType() == Message.MessageType.DRAW);
-                        }
+                        writeActionToFile(drawMsg);
                         
                         // Forward to connected clients
                         for (ClientHandler client : connectedClients) {
@@ -1380,6 +1454,7 @@ public class Server {
                 logMessage("Error processing drawing message: " + e.getMessage());
             }
         }
+
         
         /**
          * Sends a message to the remote server.
@@ -1478,31 +1553,23 @@ public class Server {
     // Update the deserializeDrawingMessage method to use timestamps
     private Object deserializeDrawingMessage(String serializedStr) {
         try {
-            // Basic implementation for Message objects
-            if (serializedStr.contains("DRAW:") || serializedStr.contains("CLEAR:")) {
-                String[] parts = serializedStr.split(":", 2);
-                String type = parts[0];
-                String content = parts.length > 1 ? parts[1] : "";
-                String senderId = "SERVER";
+            // Check for drawing or clear actions
+            if (serializedStr.contains("DRAW:") || 
+                serializedStr.contains("START:") || 
+                serializedStr.contains("END:")) {
                 
-                Message.MessageType messageType = null;
-                if (type.equals("DRAW")) {
-                    messageType = Message.MessageType.DRAW;
-                } else if (type.equals("CLEAR")) {
-                    messageType = Message.MessageType.CLEAR;
-                }
+                // All drawing actions use MessageType.DRAW
+                return new Message(Message.MessageType.DRAW, serializedStr, "SERVER", getCurrentTime());
                 
-                if (messageType != null) {
-                    // Create message with synchronized server time
-                    return new Message(messageType, content, senderId, getCurrentTime());
-                }
+            } else if (serializedStr.contains("CLEAR:")) {
+                return new Message(Message.MessageType.CLEAR, serializedStr, "SERVER", getCurrentTime());
             }
         } catch (Exception e) {
             logMessage("Error deserializing: " + e.getMessage());
         }
         return null;
-    }
-    
+    }    
+
     /**
      * Main method. This will start either a leader or a follower.
      */
