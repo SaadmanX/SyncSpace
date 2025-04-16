@@ -921,19 +921,18 @@ public class Server {
             if (mainParts.length < 2) return null;
             
             String actionData = mainParts[0];
-            String senderId = mainParts[1];
+            String senderId = mainParts[1].split(":")[0];
+            long timestamp = Long.parseLong(mainParts[1].split(":")[1]);
             
             String[] dataParts = actionData.split(":", 3);
-            if (dataParts.length < 3) return null;
+            // if (dataParts.length < 3) return null;
             
             String typeStr = dataParts[0].trim();
-            String content = dataParts[1].trim();
-            long timestamp = Long.parseLong(dataParts[2].trim());
+            String content = actionData;
             
             MessageType messageType;
             if (typeStr.equals("DRAW") || typeStr.equals("START") || typeStr.equals("END")) {
                 messageType = MessageType.DRAW;
-                content = typeStr + ":" + content;
             } else if (typeStr.equals("CLEAR")) {
                 messageType = MessageType.CLEAR;
             } else if (typeStr.equals("TEXT")) {
@@ -941,8 +940,9 @@ public class Server {
             } else {
                 return null;
             }
-            
-            return new Message(messageType, content, senderId, timestamp);
+            Message retmsg = new Message(messageType, content, senderId, timestamp);
+            logMessage("parsed message: " + retmsg.toString());
+            return retmsg;
         } catch (Exception e) {
             logMessage("Error parsing action line: " + line + " - " + e.getMessage());
             return null;
