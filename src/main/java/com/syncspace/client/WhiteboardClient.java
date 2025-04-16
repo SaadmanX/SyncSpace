@@ -322,12 +322,12 @@ public class WhiteboardClient {
                                 handleTimeSync(message);
                             } else if (message.equals("SERVER_LEADERSHIP_CHANGE")) {
                                 logNetwork("Server notified of leadership change");
-                                chatPanel.receiveMessage("*** Server leadership has changed ***");
+                                // chatPanel.receiveMessage("*** Server leadership has changed ***");
                             } else if (message.startsWith("NEW_LEADER_IP:")) {
                                 // NEW CASE: Handle new leader notification
                                 String newLeaderIp = message.substring("NEW_LEADER_IP:".length());
                                 logNetwork("Received new leader notification: " + newLeaderIp);
-                                chatPanel.receiveMessage("*** New leader server is: " + newLeaderIp + " ***");
+                                chatPanel.receiveMessage("CONNECTED TO NEW SERVER");
                                 
                                 // Add to known servers if not already there
                                 if (!knownServerIps.contains(newLeaderIp)) {
@@ -338,7 +338,7 @@ public class WhiteboardClient {
                                 // If this isn't the server we're already connected to, reconnect
                                 if (!socket.getInetAddress().getHostAddress().equals(newLeaderIp)) {
                                     logNetwork("Current server is not the new leader, initiating reconnection");
-                                    chatPanel.receiveMessage("Attempting to connect to new leader: " + newLeaderIp);
+                                    // chatPanel.receiveMessage("Attempting to connect to new leader: " + newLeaderIp);
                                     // Attempt connection to new leader
                                     handleServerChangeWithNewLeader(newLeaderIp);
                                 } else {
@@ -349,7 +349,7 @@ public class WhiteboardClient {
                                 System.out.println(message);
                                 System.out.println("000000000000000000000000000000000000000");
                                 logNetwork("Received drawing history with " + message.split("\n").length + " lines");
-                                chatPanel.receiveMessage("Received drawing history from server");
+                                // chatPanel.receiveMessage("Received drawing history from server");
                                 String[] drawActions = message.substring("ALLDRAW:".length()).split("\n");
                                 for (String act: drawActions) {
                                     Object act1 = (Object) act;
@@ -360,7 +360,7 @@ public class WhiteboardClient {
                             } else {
                                 // Handle regular string messages
                                 logNetwork("Received chat or system message: " + message);
-                                chatPanel.receiveMessage(message);
+                                // chatPanel.receiveMessage(message);
                             }                    
                         } else if (input instanceof Boolean) {
                             Boolean regResponse = (Boolean) input;
@@ -377,7 +377,7 @@ public class WhiteboardClient {
                         }
                     } catch (ClassNotFoundException e) {
                         logError("Error processing received message", e);
-                        chatPanel.receiveMessage("Error processing message: " + e.getMessage());
+                        // chatPanel.receiveMessage("Error processing message: " + e.getMessage());
                     }
                 }
             } catch (IOException e) {
@@ -413,10 +413,10 @@ public class WhiteboardClient {
             logNetwork("Re-registering with username: " + username);
             registerUser(username);
             logNetwork("Registration with new leader complete");
-            chatPanel.receiveMessage("*** Successfully connected to new leader at " + newLeaderIp + " ***");
+            // chatPanel.receiveMessage("*** Successfully connected to new leader at " + newLeaderIp + " ***");
         } catch (Exception e) {
             logError("Failed to connect to new leader", e);
-            chatPanel.receiveMessage("Failed to connect to new leader: " + e.getMessage());
+            // chatPanel.receiveMessage("Failed to connect to new leader: " + e.getMessage());
             // Fall back to normal reconnection process
             logNetwork("Falling back to normal reconnection process");
             handleServerDisconnection();
@@ -426,11 +426,11 @@ public class WhiteboardClient {
     private void handleServerDisconnection() {
         logNetwork("Handling server disconnection");
         // Client lost connection to server
-        chatPanel.receiveMessage("*** Connection to server lost. Attempting to reconnect... ***");
+        // chatPanel.receiveMessage("*** Connection to server lost. Attempting to reconnect... ***");
         
         // First, let's wait to allow leader election to complete (8 seconds)
         logNetwork("Waiting 8 seconds for servers to complete leadership election");
-        chatPanel.receiveMessage("Waiting for servers to complete leadership election...");
+        // chatPanel.receiveMessage("Waiting for servers to complete leadership election...");
         try {
             Thread.sleep(2000);
         } catch (InterruptedException e) {
@@ -471,7 +471,7 @@ public class WhiteboardClient {
         // Try each server - IMPORTANT: No early removal of candidates
         for (String serverIp : serverCandidates) {
             logNetwork("Attempting to connect to server at " + serverIp);
-            chatPanel.receiveMessage("Attempting to connect to server at " + serverIp);
+            // chatPanel.receiveMessage("Attempting to connect to server at " + serverIp);
             try {
                 // Close existing connection resources
                 logNetwork("Closing any existing connections before connecting to " + serverIp);
@@ -520,7 +520,7 @@ public class WhiteboardClient {
                     logNetwork("Re-registering with username: " + username);
                     registerUser(username);
                     logNetwork("Successfully reconnected to server at " + serverIp);
-                    chatPanel.receiveMessage("*** Successfully connected to server at " + serverIp + " ***");
+                    // chatPanel.receiveMessage("*** Successfully connected to server at " + serverIp + " ***");
                     return; // Successfully reconnected
                 } catch (Exception e) {
                     logError("Failed to register with " + serverIp, e);
@@ -529,7 +529,7 @@ public class WhiteboardClient {
                 
             } catch (Exception e) {
                 logError("Unexpected error connecting to " + serverIp, e);
-                chatPanel.receiveMessage("Error connecting to " + serverIp + ": " + e.getMessage());
+                // chatPanel.receiveMessage("Error connecting to " + serverIp + ": " + e.getMessage());
             }
             
             // Add a short delay between connection attempts
@@ -544,7 +544,7 @@ public class WhiteboardClient {
         
         // Recursive retry logic
         logNetwork("All reconnection attempts failed, will retry in 10 seconds");
-        chatPanel.receiveMessage("All reconnection attempts failed. Will retry in 10 seconds...");
+        // chatPanel.receiveMessage("All reconnection attempts failed. Will retry in 10 seconds...");
         try {
             Thread.sleep(2000);
             logNetwork("Retrying reconnection process");
@@ -580,8 +580,7 @@ public class WhiteboardClient {
                 virtualClockOffset += adjustment;
                 logNetwork("Adjusted virtual clock by " + adjustment + 
                         "ms, total offset: " + virtualClockOffset + "ms");
-                chatPanel.receiveMessage("*** Time synchronized with server, offset: " + 
-                                        virtualClockOffset + "ms ***");
+                // chatPanel.receiveMessage("*** Time synchronized with server, offset: " + virtualClockOffset + "ms ***");
             } catch (NumberFormatException e) {
                 logError("Invalid time adjustment format: " + parts[2], e);
             }
@@ -635,7 +634,7 @@ public class WhiteboardClient {
                         }
                     }
                     
-                    chatPanel.receiveMessage(message.getSenderId() + ": " + displayText);
+                    chatPanel.receiveMessage(message.getSenderId() + ": " + displayText); // this is fine
                     break;
                 case DRAW:
                     logDrawing("Received draw message: " + message.getContent() + 
@@ -651,12 +650,12 @@ public class WhiteboardClient {
                 case USER_JOIN:
                     logInfo("User joined: " + message.getSenderId() + 
                         " (time: " + new Date(message.getTimestamp()) + ")");
-                    chatPanel.receiveMessage("*** " + message.getSenderId() + " has joined ***");
+                    chatPanel.receiveMessage("*** " + message.getSenderId() + " has joined ***"); // this is fine
                     break;
                 case USER_LEAVE:
                     logInfo("User left: " + message.getSenderId() + 
                         " (time: " + new Date(message.getTimestamp()) + ")");
-                    chatPanel.receiveMessage("*** " + message.getSenderId() + " has left ***");
+                    chatPanel.receiveMessage("*** " + message.getSenderId() + " has left ***"); // this is fine
                     break;
                 default:
                     logInfo("Received message of unknown type: " + message.getType() + 
@@ -735,10 +734,10 @@ public class WhiteboardClient {
     private void updateFollowerListUI() {
         logInfo("Updating follower list UI with " + followerIps.size() + " followers");
         // This could update a status bar, a label, or add to the chat panel
-        chatPanel.receiveMessage("--- Connected follower servers: " + followerIps.size() + " ---");
-        for (String ip : followerIps) {
-            chatPanel.receiveMessage("    → " + ip);
-        }
+        // chatPanel.receiveMessage("--- Connected follower servers: " + followerIps.size() + " ---");
+        // for (String ip : followerIps) {
+        //     // chatPanel.receiveMessage("    → " + ip);
+        // }
     }
     
     private void registerUser(String username) {
