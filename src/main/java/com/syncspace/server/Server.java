@@ -1094,6 +1094,7 @@ private void appendToLocalDatabase(Message message) {
             if (conn.getType() == ServerConnectionType.FOLLOWER) {
                 conn.sendMessage("REPLICATE:" + messageType + ":" + message.getContent() + 
                                 ":" + message.getSenderId() + ":" + message.getTimestamp());
+                logMessage("SENDING:r\n"+"REPLICATE:" + messageType + ":" + message.getContent() +  ":" + message.getSenderId() + ":" + message.getTimestamp()+"\n+++++++++++++++");
             }
         }
     }
@@ -1386,6 +1387,7 @@ private void appendToLocalDatabase(Message message) {
                 }
                 else if (stringMessage.startsWith("REPLICATE:")) {
                     // Handle replication messages from the leader
+                    logMessage("RECEIVING:\n"+stringMessage.substring("REPLICATE:".length())+"\n+++++++++");
                     handleReplicationMessage(stringMessage.substring("REPLICATE:".length()));
                 }
                 else if (stringMessage.startsWith("FOLLOWER_SHUTDOWN:")) {
@@ -1551,6 +1553,7 @@ private void processFullHistory(String historyData) {
  * Format: TYPE:CONTENT:SENDER_ID:TIMESTAMP
  */
 private void handleReplicationMessage(String stringMessage) {
+    logMessage("+++++++++++\nREPLICATION HANDLING HERE:\n"+stringMessage+"\n+++++++++++++++++");
     try {
         String[] parts = stringMessage.split(":", 5);
         if (parts.length < 4) {
