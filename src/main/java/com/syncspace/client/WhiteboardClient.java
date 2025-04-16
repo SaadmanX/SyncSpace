@@ -4,56 +4,32 @@ import com.syncspace.client.ui.ChatPanel;
 import com.syncspace.client.ui.WhiteboardPanel;
 import com.syncspace.common.Message;
 
-import javax.imageio.ImageIO;
 import javax.swing.*;
-import javax.swing.border.EmptyBorder;
-import javax.swing.filechooser.FileNameExtensionFilter;
-
 import java.awt.*;
 import java.awt.event.*;
-import java.awt.image.BufferedImage;
-import java.io.File;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.ArrayList;
 import java.text.SimpleDateFormat;
 import java.util.Date;
-import java.util.HashMap;
 
 public class WhiteboardClient {
     private Socket socket;
     private ObjectOutputStream outputStream;
     private ObjectInputStream inputStream;
+    private JFrame frame;
+    private WhiteboardPanel whiteboardPanel;
+    private ChatPanel chatPanel;
     private String username;
     private final List<String> followerIps = new CopyOnWriteArrayList<>();
     private final List<String> knownServerIps = new CopyOnWriteArrayList<>();
     private final SimpleDateFormat logDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
     private long virtualClockOffset = 0;
     private long lastSyncTime = 0;
-
-    private JFrame frame;
-    private WhiteboardPanel whiteboardPanel;
-    private ChatPanel chatPanel;
-    private JToolBar toolBar;
-    private JPanel statusBar;
-    private JLabel statusLabel;
-    private JLabel connectionStatusLabel;
-    private JLabel activeUsersLabel;
-
-    private enum DrawTool {
-        PEN, LINE, RECTANGLE, CIRCLE, ERASER, TEXT, SELECT
-    }
-
-    private DrawTool currentTool = DrawTool.PEN;
-    private Color currentColor = Color.BLACK;
-    private int strokeSize = 2;
-    private Map<String, Color> userColors = new HashMap<>();
-
 
     /**
      * Log a message to the terminal with timestamp and category
@@ -147,417 +123,36 @@ public class WhiteboardClient {
         }
     }
 
-
     private void initializeUI() {
-        // Main frame setup
-        frame = new JFrame("SyncSpace Collaborative Whiteboard");
+        logInfo("Initializing UI components");
+        frame = new JFrame("SyncSpace");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setSize(1200, 800);
-        frame.setMinimumSize(new Dimension(800, 600));
-        
-        // Use BorderLayout for the main layout
-        frame.setLayout(new BorderLayout(5, 5));
-        
-        // Create a split pane for the main content and chat
-        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        splitPane.setResizeWeight(0.8); // Give more space to the whiteboard
-        splitPane.setOneTouchExpandable(true);
-        
-        // Setup the main content panel (toolbar + whiteboard)
-        JPanel mainContentPanel = new JPanel(new BorderLayout(0, 0));
-        
-        // Create toolbar
-        createToolbar();
-        mainContentPanel.add(toolBar, BorderLayout.NORTH);
-        
-        // Create property panel (for tool-specific settings)
-        JPanel propertyPanel = createPropertyPanel();
-        mainContentPanel.add(propertyPanel, BorderLayout.WEST);
-        
-        // Create whiteboard panel with scroll support
+        frame.setSize(1000, 600);
+        frame.setLayout(new BorderLayout());
+
+        // Create toolbar with drawing options
+        JToolBar toolBar = new JToolBar();
+        JButton clearBtn = new JButton("Clear");
+        clearBtn.addActionListener(e -> {
+            logInfo("User clicked Clear button");
+            whiteboardPanel.clearCanvas();
+            sendClearAction(0);
+        });
+        toolBar.add(clearBtn);
+        frame.add(toolBar, BorderLayout.NORTH);
+
+        // Create whiteboard panel (main drawing area)
         whiteboardPanel = new WhiteboardPanel();
-        JScrollPane scrollPane = new JScrollPane(whiteboardPanel);
-        scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-        scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
-        mainContentPanel.add(scrollPane, BorderLayout.CENTER);
-        
+        frame.add(whiteboardPanel, BorderLayout.CENTER);
+
         // Create chat panel
         chatPanel = new ChatPanel();
-        
-        // Add components to split pane
-        splitPane.setLeftComponent(mainContentPanel);
-        splitPane.setRightComponent(chatPanel);
-        
-        // Add split pane to frame
-        frame.add(splitPane, BorderLayout.CENTER);
-        
-        // Create status bar
-        createStatusBar();
-        frame.add(statusBar, BorderLayout.SOUTH);
-        
-        // Display the window
+        chatPanel.setPreferredSize(new Dimension(250, frame.getHeight()));
+        frame.add(chatPanel, BorderLayout.EAST);
+
         frame.setVisible(true);
-        
-        // Set initial split location after frame is visible
-        splitPane.setDividerLocation(0.8);
-        
         logInfo("UI initialization complete");
     }
-
-    private void createToolbar() {
-        toolBar = new JToolBar();
-        toolBar.setFloatable(false);
-        toolBar.setBorder(BorderFactory.createEtchedBorder());
-        
-        // File operations group
-        toolBar.add(createToolbarButton("New", "file-new.png", e -> clearWhiteboard()));
-        toolBar.add(createToolbarButton("Open", "file-open.png", e -> loadWhiteboard()));
-        toolBar.add(createToolbarButton("Save", "file-save.png", e -> saveWhiteboard()));
-        toolBar.add(createToolbarButton("Export", "file-export.png", e -> exportAsImage()));
-        
-        toolBar.addSeparator();
-        
-        // Tool selection group
-        ButtonGroup toolGroup = new ButtonGroup();
-        JToggleButton penButton = createToolbarToggleButton("Pen", "tool-pen.png", e -> setCurrentTool(DrawTool.PEN));
-        penButton.setSelected(true);
-        toolGroup.add(penButton);
-        toolBar.add(penButton);
-        
-        JToggleButton lineButton = createToolbarToggleButton("Line", "tool-line.png", e -> setCurrentTool(DrawTool.LINE));
-        toolGroup.add(lineButton);
-        toolBar.add(lineButton);
-        
-        JToggleButton rectButton = createToolbarToggleButton("Rectangle", "tool-rectangle.png", e -> setCurrentTool(DrawTool.RECTANGLE));
-        toolGroup.add(rectButton);
-        toolBar.add(rectButton);
-        
-        JToggleButton circleButton = createToolbarToggleButton("Circle", "tool-circle.png", e -> setCurrentTool(DrawTool.CIRCLE));
-        toolGroup.add(circleButton);
-        toolBar.add(circleButton);
-        
-        JToggleButton eraserButton = createToolbarToggleButton("Eraser", "tool-eraser.png", e -> setCurrentTool(DrawTool.ERASER));
-        toolGroup.add(eraserButton);
-        toolBar.add(eraserButton);
-        
-        JToggleButton textButton = createToolbarToggleButton("Text", "tool-text.png", e -> setCurrentTool(DrawTool.TEXT));
-        toolGroup.add(textButton);
-        toolBar.add(textButton);
-        
-        JToggleButton selectButton = createToolbarToggleButton("Select", "tool-select.png", e -> setCurrentTool(DrawTool.SELECT));
-        toolGroup.add(selectButton);
-        toolBar.add(selectButton);
-        
-        toolBar.addSeparator();
-        
-        // Color selection
-        JButton colorButton = createToolbarButton("Color", "color-palette.png", e -> chooseColor());
-        colorButton.setBackground(currentColor);
-        toolBar.add(colorButton);
-        
-        // Stroke size
-        String[] strokeSizes = {"1", "2", "3", "5", "8", "12"};
-        JComboBox<String> strokeBox = new JComboBox<>(strokeSizes);
-        strokeBox.setSelectedIndex(1); // Default to 2px
-        strokeBox.setMaximumSize(new Dimension(60, 28));
-        strokeBox.addActionListener(e -> {
-            strokeSize = Integer.parseInt((String)strokeBox.getSelectedItem());
-            whiteboardPanel.setStrokeSize(strokeSize);
-        });
-        toolBar.add(new JLabel(" Size: "));
-        toolBar.add(strokeBox);
-        
-        toolBar.addSeparator();
-        
-        // View controls
-        toolBar.add(createToolbarButton("Zoom In", "zoom-in.png", e -> zoomIn()));
-        toolBar.add(createToolbarButton("Zoom Out", "zoom-out.png", e -> zoomOut()));
-        toolBar.add(createToolbarButton("Reset View", "zoom-reset.png", e -> resetZoom()));
-        
-        toolBar.addSeparator();
-        
-        // Clear whiteboard
-        toolBar.add(createToolbarButton("Clear", "edit-clear.png", e -> {
-            if (JOptionPane.showConfirmDialog(frame, 
-                    "Are you sure you want to clear the whiteboard?", 
-                    "Clear Whiteboard", 
-                    JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION) {
-                clearWhiteboard();
-            }
-        }));
-    }
-
-    private JPanel createPropertyPanel() {
-        JPanel panel = new JPanel();
-        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-        panel.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createEtchedBorder(),
-            new EmptyBorder(5, 5, 5, 5)));
-        panel.setPreferredSize(new Dimension(60, 0));
-        
-        // Quick color palette
-        JPanel colorPanel = new JPanel(new GridLayout(4, 2, 3, 3));
-        colorPanel.setBorder(BorderFactory.createTitledBorder("Colors"));
-        
-        addColorSwatch(colorPanel, Color.BLACK);
-        addColorSwatch(colorPanel, Color.BLUE);
-        addColorSwatch(colorPanel, Color.RED);
-        addColorSwatch(colorPanel, Color.GREEN);
-        addColorSwatch(colorPanel, Color.ORANGE);
-        addColorSwatch(colorPanel, Color.MAGENTA);
-        addColorSwatch(colorPanel, Color.CYAN);
-        addColorSwatch(colorPanel, Color.PINK);
-        
-        panel.add(colorPanel);
-        
-        // Stroke size swatches
-        JPanel strokePanel = new JPanel(new GridLayout(3, 1, 3, 3));
-        strokePanel.setBorder(BorderFactory.createTitledBorder("Stroke"));
-        
-        addStrokeSwatch(strokePanel, 2);
-        addStrokeSwatch(strokePanel, 5);
-        addStrokeSwatch(strokePanel, 10);
-        
-        panel.add(strokePanel);
-        
-        // Add filler to push everything to the top
-        panel.add(Box.createVerticalGlue());
-        
-        return panel;
-    }
-
-    private void createStatusBar() {
-        statusBar = new JPanel(new BorderLayout());
-        statusBar.setBorder(BorderFactory.createEtchedBorder());
-        
-        // Left section - general status
-        statusLabel = new JLabel("Ready");
-        statusLabel.setBorder(new EmptyBorder(2, 5, 2, 5));
-        statusBar.add(statusLabel, BorderLayout.WEST);
-        
-        // Right section - connection status and active users
-        JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        
-        connectionStatusLabel = new JLabel("Connected");
-        connectionStatusLabel.setIcon(createColorIcon(Color.GREEN, 10, 10));
-        connectionStatusLabel.setBorder(new EmptyBorder(0, 5, 0, 5));
-        rightPanel.add(connectionStatusLabel);
-        
-        activeUsersLabel = new JLabel("Users: 1");
-        activeUsersLabel.setBorder(new EmptyBorder(0, 5, 0, 10));
-        rightPanel.add(activeUsersLabel);
-        
-        statusBar.add(rightPanel, BorderLayout.EAST);
-    }
-
-    private JButton createToolbarButton(String tooltip, String iconName, ActionListener action) {
-        JButton button = new JButton();
-        button.setToolTipText(tooltip);
-        
-        // First try to load the actual icon
-        try {
-            ImageIcon icon = new ImageIcon(getClass().getResource("/icons/" + iconName));
-            button.setIcon(icon);
-        } catch (Exception e) {
-            // If icon can't be loaded, use text fallback
-            button.setText(tooltip);
-        }
-        
-        button.setFocusPainted(false);
-        button.addActionListener(action);
-        return button;
-    }
-    
-    private JToggleButton createToolbarToggleButton(String tooltip, String iconName, ActionListener action) {
-        JToggleButton button = new JToggleButton();
-        button.setToolTipText(tooltip);
-        
-        // First try to load the actual icon
-        try {
-            ImageIcon icon = new ImageIcon(getClass().getResource("/icons/" + iconName));
-            button.setIcon(icon);
-        } catch (Exception e) {
-            // If icon can't be loaded, use text fallback
-            button.setText(tooltip);
-        }
-        
-        button.setFocusPainted(false);
-        button.addActionListener(action);
-        return button;
-    }
-
-    private void addColorSwatch(JPanel panel, Color color) {
-        JButton swatch = new JButton();
-        swatch.setBackground(color);
-        swatch.setPreferredSize(new Dimension(20, 20));
-        swatch.setBorder(BorderFactory.createLineBorder(Color.BLACK));
-        swatch.addActionListener(e -> {
-            currentColor = color;
-            whiteboardPanel.setColor(color);
-            updateStatusMessage("Color selected: " + colorToString(color));
-        });
-        panel.add(swatch);
-    }
-    
-    private void addStrokeSwatch(JPanel panel, int size) {
-        JButton swatch = new JButton() {
-            @Override
-            protected void paintComponent(Graphics g) {
-                super.paintComponent(g);
-                Graphics2D g2d = (Graphics2D)g;
-                g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2d.setColor(Color.BLACK);
-                int width = getWidth();
-                int height = getHeight();
-                g2d.drawLine(5, height/2, width-5, height/2);
-                g2d.setStroke(new BasicStroke(size));
-            }
-        };
-        swatch.setPreferredSize(new Dimension(50, 20));
-        swatch.addActionListener(e -> {
-            strokeSize = size;
-            whiteboardPanel.setStrokeSize(size);
-            updateStatusMessage("Stroke size: " + size + "px");
-        });
-        panel.add(swatch);
-    }
-    
-    private Icon createColorIcon(Color color, int width, int height) {
-        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g2d = image.createGraphics();
-        g2d.setColor(color);
-        g2d.fillOval(0, 0, width, height);
-        g2d.dispose();
-        return new ImageIcon(image);
-    }
-    
-    private void setCurrentTool(DrawTool tool) {
-        currentTool = tool;
-        whiteboardPanel.setTool(tool.toString());
-        updateStatusMessage("Tool selected: " + tool.toString());
-    }
-
-    private void updateStatusMessage(String message) {
-        statusLabel.setText(message);
-    }
-    
-    private void updateConnectionStatus(boolean connected) {
-        if (connected) {
-            connectionStatusLabel.setText("Connected");
-            connectionStatusLabel.setIcon(createColorIcon(Color.GREEN, 10, 10));
-        } else {
-            connectionStatusLabel.setText("Disconnected");
-            connectionStatusLabel.setIcon(createColorIcon(Color.RED, 10, 10));
-        }
-    }
-    
-    private void updateActiveUsers(int count) {
-        activeUsersLabel.setText("Users: " + count);
-    }
-
-    private String colorToString(Color color) {
-        if (color.equals(Color.BLACK)) return "Black";
-        if (color.equals(Color.BLUE)) return "Blue";
-        if (color.equals(Color.RED)) return "Red";
-        if (color.equals(Color.GREEN)) return "Green";
-        if (color.equals(Color.ORANGE)) return "Orange";
-        if (color.equals(Color.MAGENTA)) return "Magenta";
-        if (color.equals(Color.CYAN)) return "Cyan";
-        if (color.equals(Color.PINK)) return "Pink";
-        return "Custom";
-    }
-    
-    private void chooseColor() {
-        Color newColor = JColorChooser.showDialog(frame, "Choose Color", currentColor);
-        if (newColor != null) {
-            currentColor = newColor;
-            whiteboardPanel.setColor(newColor);
-            updateStatusMessage("Custom color selected");
-        }
-    }
-    
-    private void clearWhiteboard() {
-        whiteboardPanel.clearCanvas();
-        sendClearAction(0);
-        updateStatusMessage("Whiteboard cleared");
-    }
-    
-    private void saveWhiteboard() {
-        JFileChooser fileChooser = new JFileChooser();
-        fileChooser.setDialogTitle("Save Whiteboard");
-        fileChooser.setFileFilter(new FileNameExtensionFilter("SyncSpace Whiteboard (*.swb)", "swb"));
-        
-        if (fileChooser.showSaveDialog(frame) == JFileChooser.APPROVE_OPTION) {
-            File file = fileChooser.getSelectedFile();
-            String path = file.getAbsolutePath();
-            if (!path.toLowerCase().endsWith(".swb")) {
-                file = new File(path + ".swb");
-            }
-            
-            // Here you would implement the actual save functionality
-            // For now, just show a success message
-            updateStatusMessage("Whiteboard saved to: " + file.getName());
-        }
-    }
-    
-    private void loadWhiteboard() {
-        JFileChooser fileChooser = new JFileChooser();
-        fileChooser.setDialogTitle("Open Whiteboard");
-        fileChooser.setFileFilter(new FileNameExtensionFilter("SyncSpace Whiteboard (*.swb)", "swb"));
-        
-        if (fileChooser.showOpenDialog(frame) == JFileChooser.APPROVE_OPTION) {
-            File file = fileChooser.getSelectedFile();
-            
-            // Here you would implement the actual load functionality
-            // For now, just show a success message
-            updateStatusMessage("Whiteboard loaded from: " + file.getName());
-        }
-    }
-    
-    private void exportAsImage() {
-        JFileChooser fileChooser = new JFileChooser();
-        fileChooser.setDialogTitle("Export as Image");
-        fileChooser.setFileFilter(new FileNameExtensionFilter("PNG Image (*.png)", "png"));
-        
-        if (fileChooser.showSaveDialog(frame) == JFileChooser.APPROVE_OPTION) {
-            File file = fileChooser.getSelectedFile();
-            String path = file.getAbsolutePath();
-            if (!path.toLowerCase().endsWith(".png")) {
-                file = new File(path + ".png");
-            }
-            
-            try {
-                BufferedImage image = whiteboardPanel.getCanvas();
-                ImageIO.write(image, "png", file);
-                updateStatusMessage("Image exported to: " + file.getName());
-            } catch (IOException e) {
-                logError("Error exporting image", e);
-                JOptionPane.showMessageDialog(frame, 
-                    "Failed to export image: " + e.getMessage(), 
-                    "Export Error", JOptionPane.ERROR_MESSAGE);
-            }
-        }
-    }
-    
-    private void zoomIn() {
-        whiteboardPanel.setZoom(whiteboardPanel.getZoom() * 1.2f);
-        updateStatusMessage("Zoom: " + Math.round(whiteboardPanel.getZoom() * 100) + "%");
-    }
-    
-    private void zoomOut() {
-        whiteboardPanel.setZoom(whiteboardPanel.getZoom() / 1.2f);
-        updateStatusMessage("Zoom: " + Math.round(whiteboardPanel.getZoom() * 100) + "%");
-    }
-    
-    private void resetZoom() {
-        whiteboardPanel.setZoom(1.0f);
-        updateStatusMessage("Zoom reset to 100%");
-    }
-
-
-
-
-
 
     private void setupEventHandlers() {
         logInfo("Setting up event handlers");
@@ -1050,7 +645,7 @@ public class WhiteboardClient {
                 case CLEAR:
                     logDrawing("Received clear canvas command (time: " + new Date(message.getTimestamp()) + ")");
                     if ("CLEAR_ALL".equals(message.getContent())) {
-                        clearWhiteboard();;
+                        whiteboardPanel.clearCanvas();
                     }
                     break;
                 case USER_JOIN:
