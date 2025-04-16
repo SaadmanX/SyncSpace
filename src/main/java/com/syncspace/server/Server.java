@@ -1456,9 +1456,9 @@ private void appendToLocalDatabase(Message message) {
                     }
                     
                     String typeStr = parts[0].trim();
-                    String content = parts[1].trim();
-                    long timestamp = Long.parseLong(parts[2].trim());
-                    String senderId = parts.length > 3 ? parts[3].trim() : "SERVER";
+                    String content = parts[2].trim();
+                    long timestamp = Long.parseLong(parts[3].trim());
+                    String senderId = parts.length > 3 ? parts[4].trim() : "SERVER";
                     
                     // Create appropriate message type
                     Message.MessageType messageType;
