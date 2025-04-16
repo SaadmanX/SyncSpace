@@ -808,6 +808,9 @@ public class Server {
             if (msg.getType() == Message.MessageType.DRAW || 
                 msg.getType() == Message.MessageType.CLEAR || msg.getType() == Message.MessageType.TEXT) {
                     writeActionToFile(msg);
+                    logMessage("---- this is the message we should see ------");
+                    logMessage(msg.toString());
+                    logMessage("--------------");
                                     
                 // If leader, replicate drawing history to followers
                 if (isLeader()) {
@@ -1418,7 +1421,10 @@ public class Server {
                     if(textMsg.getType() == MessageType.TEXT){
 
                         writeActionToFile(textMsg);
-
+                        logMessage("---- this is the message we should see ------");
+                        logMessage(textMsg.toString());
+                        logMessage("--------------");
+    
                         for(ClientHandler client : connectedClients){
                             client.sendMessage(textMsg);
                         }
@@ -1444,7 +1450,10 @@ public class Server {
                         drawMsg.getType() == Message.MessageType.CLEAR) {
                         
                         writeActionToFile(drawMsg);
-                        
+                        logMessage("---- this is the message we should see ------");
+                        logMessage(drawMsg.toString());
+                        logMessage("--------------");
+    
                         // Forward to connected clients
                         for (ClientHandler client : connectedClients) {
                             client.sendMessage(drawMsg);
