@@ -13,7 +13,6 @@ com/syncspace/server/Server$ConnectionMessage.class
 com/syncspace/client/ui/ChatPanel.class
 com/syncspace/client/WhiteboardClient$3.class
 com/syncspace/server/UserManager.class
-com/syncspace/client/ui/ChatPanel$1.class
 com/syncspace/server/Server.class
 com/syncspace/server/Server$1.class
 com/syncspace/client/ui/WhiteboardPanel.class

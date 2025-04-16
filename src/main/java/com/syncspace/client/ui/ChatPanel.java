@@ -18,22 +18,22 @@ public class ChatPanel extends JPanel {
         JScrollPane scrollPane = new JScrollPane(chatArea);
         add(scrollPane, BorderLayout.CENTER);
 
-        JPanel inputPanel = new JPanel();
-        inputPanel.setLayout(new BorderLayout());
+        // JPanel inputPanel = new JPanel();
+        // inputPanel.setLayout(new BorderLayout());
 
-        inputField = new JTextField();
-        inputPanel.add(inputField, BorderLayout.CENTER);
+        // inputField = new JTextField();
+        // inputPanel.add(inputField, BorderLayout.CENTER);
 
-        sendButton = new JButton("Send");
-        sendButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                sendMessage();
-            }
-        });
-        inputPanel.add(sendButton, BorderLayout.EAST);
+        // sendButton = new JButton("Send");
+        // sendButton.addActionListener(new ActionListener() {
+        //     @Override
+        //     public void actionPerformed(ActionEvent e) {
+        //         sendMessage();
+        //     }
+        // });
+        // inputPanel.add(sendButton, BorderLayout.EAST);
 
-        add(inputPanel, BorderLayout.SOUTH);
+        // add(inputPanel, BorderLayout.SOUTH);
     }
 
     private void sendMessage() {
