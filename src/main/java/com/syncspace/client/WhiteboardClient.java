@@ -127,7 +127,7 @@ public class WhiteboardClient {
         logInfo("Initializing UI components");
         frame = new JFrame("SyncSpace");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setSize(1000, 600);
+        frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
         frame.setLayout(new BorderLayout());
 
         // Create toolbar with drawing options

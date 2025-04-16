@@ -60,6 +60,51 @@ public class WhiteboardPanel extends JPanel {
         
         // Start animation timer for status messages and activity indicators
         new Timer(100, e -> repaint()).start();
+        
+        // Add component listener for resizing
+        addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent e) {
+                resizeCanvas();
+            }
+        });
+    }
+    
+    /**
+     * Resizes the canvas when the window is resized
+     */
+    private void resizeCanvas() {
+        if (getWidth() <= 0 || getHeight() <= 0) return;
+        
+        // Create new, larger buffer
+        BufferedImage newCanvas = new BufferedImage(getWidth(), getHeight(), BufferedImage.TYPE_INT_ARGB);
+        Graphics2D newG2d = newCanvas.createGraphics();
+        
+        // Set up the graphics context
+        newG2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        newG2d.setPaint(currentColor);
+        newG2d.setStroke(new BasicStroke(strokeSize, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        
+        // Fill with white background
+        newG2d.setColor(Color.WHITE);
+        newG2d.fillRect(0, 0, newCanvas.getWidth(), newCanvas.getHeight());
+        
+        // Copy existing content
+        if (canvas != null) {
+            newG2d.drawImage(canvas, 0, 0, null);
+        }
+        
+        // Update canvas and graphics context
+        if (g2d != null) {
+            g2d.dispose();
+        }
+        
+        canvas = newCanvas;
+        g2d = newG2d;
+        g2d.setColor(currentColor);
+        
+        // Show status message
+        showStatus("Canvas resized to " + getWidth() + "×" + getHeight());
     }
 
     public void startDrawing(Point point, String userId) {
@@ -113,13 +158,76 @@ public class WhiteboardPanel extends JPanel {
     private void drawLine(Point point, String userId) {
         List<Point> points = userPoints.get(userId);
         if (points != null && points.size() > 1) {
-            Point lastPoint = points.get(points.size() - 2);
-            Color userColor = userColors.getOrDefault(userId, currentColor);
+            // Get the last few points for smooth interpolation
+            int numPoints = points.size();
             
+            // Get current and previous point
+            Point currentPoint = point;
+            Point lastPoint = points.get(numPoints - 2);
+            
+            // Set color and stroke for this user
+            Color userColor = userColors.getOrDefault(userId, currentColor);
             g2d.setColor(userColor);
             g2d.setStroke(new BasicStroke(strokeSize, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-            g2d.drawLine(lastPoint.x, lastPoint.y, point.x, point.y);
+            
+            // For smoother strokes, if we have enough points, use a smoother curve
+            if (numPoints >= 4) {
+                // Get more points for curve generation
+                Point p0 = points.get(numPoints - 4);
+                Point p1 = points.get(numPoints - 3);
+                Point p2 = lastPoint;
+                Point p3 = currentPoint;
+                
+                // Use a Bezier curve to smooth the line between points
+                drawSmoothCurve(g2d, p0, p1, p2, p3);
+            } else {
+                // Not enough points for curve, draw a simple line
+                g2d.drawLine(lastPoint.x, lastPoint.y, currentPoint.x, currentPoint.y);
+            }
         }
+    }
+    
+    /**
+     * Draws a smooth curve between points using a Bezier curve
+     */
+    private void drawSmoothCurve(Graphics2D g, Point p0, Point p1, Point p2, Point p3) {
+        // Compute control points for a cubic Bezier curve
+        int totalPoints = 10; // Number of subdivisions for the curve
+        
+        for (int i = 0; i < totalPoints - 1; i++) {
+            float t0 = (float)i / (totalPoints - 1);
+            float t1 = (float)(i + 1) / (totalPoints - 1);
+            
+            // Calculate points along the curve at parameter values t0 and t1
+            Point pt0 = interpolatePoints(p0, p1, p2, p3, t0);
+            Point pt1 = interpolatePoints(p0, p1, p2, p3, t1);
+            
+            // Draw a line segment between these two points
+            g.drawLine(pt0.x, pt0.y, pt1.x, pt1.y);
+        }
+    }
+    
+    /**
+     * Interpolates a point along a Catmull-Rom spline (produces a smooth curve through all points)
+     */
+    private Point interpolatePoints(Point p0, Point p1, Point p2, Point p3, float t) {
+        // Catmull-Rom spline interpolation formula
+        float t2 = t * t;
+        float t3 = t2 * t;
+        
+        // Compute x coordinate
+        int x = (int)(0.5f * ((2 * p1.x) + 
+                              (-p0.x + p2.x) * t +
+                              (2*p0.x - 5*p1.x + 4*p2.x - p3.x) * t2 +
+                              (-p0.x + 3*p1.x - 3*p2.x + p3.x) * t3));
+                              
+        // Compute y coordinate
+        int y = (int)(0.5f * ((2 * p1.y) + 
+                              (-p0.y + p2.y) * t +
+                              (2*p0.y - 5*p1.y + 4*p2.y - p3.y) * t2 +
+                              (-p0.y + 3*p1.y - 3*p2.y + p3.y) * t3));
+                              
+        return new Point(x, y);
     }
 
     @Override
