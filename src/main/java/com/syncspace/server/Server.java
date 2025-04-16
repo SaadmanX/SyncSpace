@@ -56,7 +56,7 @@ public class Server {
     
     // Connection management
     private final List<ServerConnection> serverConnections = new CopyOnWriteArrayList<>();
-    private final String filename = "database";
+    private final String filename = "database.txt";
     private final List<String> followerIps = new CopyOnWriteArrayList<>();
     private final BlockingQueue<ConnectionMessage> messageQueue = new PriorityBlockingQueue<>(1000, 
         (msg1, msg2) -> {
