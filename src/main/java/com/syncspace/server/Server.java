@@ -56,7 +56,6 @@ public class Server {
     
     // Connection management
     private final List<ServerConnection> serverConnections = new CopyOnWriteArrayList<>();
-    private final String filename = "database.txt";
     private final List<String> followerIps = new CopyOnWriteArrayList<>();
     private final BlockingQueue<ConnectionMessage> messageQueue = new PriorityBlockingQueue<>(1000, 
         (msg1, msg2) -> {
@@ -851,7 +850,7 @@ public class Server {
         
         synchronized(fileAccessLock) { // Add this lock as a class field
             try (java.io.BufferedReader reader = new java.io.BufferedReader(
-                    new java.io.FileReader(filename))) {
+                    new java.io.FileReader(getFilename()))) {
                 String line;
                 
                 while ((line = reader.readLine()) != null) {
@@ -945,12 +944,9 @@ public class Server {
      * Writes a message action to the server's local log file.
      * Uses open-write-close pattern for simplicity.
      */
-    /**
-     * Writes a single action to the file
-     */
     private void writeActionToFile(Message message) {
         synchronized (fileAccessLock) {
-            try (java.io.FileWriter fw = new java.io.FileWriter(filename, true)) {
+            try (java.io.FileWriter fw = new java.io.FileWriter(getFilename(), true)) {
                 // For drawing actions, extract the actual action type from content
                 String typeStr;
                 String content = message.getContent();
@@ -989,7 +985,7 @@ public class Server {
         }
         
         synchronized(fileAccessLock) {
-            try (java.io.FileWriter fw = new java.io.FileWriter(filename, false)) { // false = overwrite
+            try (java.io.FileWriter fw = new java.io.FileWriter(getFilename(), false)) { // false = overwrite
                 fw.write(actionHistory);
                 logMessage("Wrote " + actionHistory.split("\n").length + " actions to history file");
             } catch (IOException e) {
@@ -1007,7 +1003,7 @@ public class Server {
     private String readActionFile() {
         StringBuilder content = new StringBuilder();
         synchronized (fileAccessLock) {
-            try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(filename))) {
+            try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(getFilename()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     content.append(line).append("\n");
@@ -1023,6 +1019,11 @@ public class Server {
     }
 
 
+    private String getFilename() {
+        return "database_" + serverIp.replace('.', '_') + ".txt";
+    }
+    
+    
                 
     /**
      * Checks if this server is the leader.
