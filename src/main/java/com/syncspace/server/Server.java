@@ -1502,6 +1502,7 @@ private void appendToLocalDatabase(Message message) {
          * Format: REPLICATE:TYPE:CONTENT:SENDER_ID:TIMESTAMP
          */
         private void handleReplicationMessage(String stringMessage) {
+            logMessage("DEBUG::::: THIS IS THE STRING RECEIVED => "+stringMessage);
             try {
                 String[] parts = stringMessage.split(":", 5);
                 if (parts.length < 5) {
