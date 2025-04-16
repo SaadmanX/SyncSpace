@@ -184,93 +184,104 @@ public class Server {
         }
     }
     
-    /**
-     * Loads drawing history from local database file
-     */
-    private void loadDrawingHistoryFromLocalDatabase() {
-        synchronized (databaseLock) {
-            drawingHistory.clear();
-            textHistory.clear();
+/**
+ * Loads drawing history from local database file
+ */
+private void loadDrawingHistoryFromLocalDatabase() {
+    synchronized (databaseLock) {
+        drawingHistory.clear();
+        textHistory.clear();
+        
+        try (FileReader fr = new FileReader(DATABASE_FILE);
+             BufferedReader br = new BufferedReader(fr)) {
             
-            try (FileReader fr = new FileReader(DATABASE_FILE);
-                 BufferedReader br = new BufferedReader(fr)) {
-                
-                logMessage("Loading drawing history from local database");
-                String line;
-                int lineCount = 0;
-                
-                while ((line = br.readLine()) != null) {
-                    try {
-                        if (line.trim().isEmpty()) continue;
-                        
-                        String[] parts = line.split(":");
-                        if (parts.length < 2) continue;
-                        
-                        String typeStr = parts[0].trim();
-                        String content = parts[1].trim();
-                        String userId = "SERVER";
-                        long timestamp = System.currentTimeMillis();
-                        
-                        // Extract timestamp if available
-                        if (parts.length >= 3) {
-                            try {
-                                timestamp = Long.parseLong(parts[2].trim());
-                            } catch (NumberFormatException e) {
-                                logMessage("Invalid timestamp format in database: " + parts[2]);
-                            }
+            logMessage("Loading drawing history from local database");
+            String line;
+            int lineCount = 0;
+            
+            while ((line = br.readLine()) != null) {
+                try {
+                    if (line.trim().isEmpty()) continue;
+                    
+                    String[] parts = line.split(":");
+                    if (parts.length < 2) continue;
+                    
+                    String typeStr = parts[0].trim();
+                    String content = parts[1].trim();
+                    String userId = "SERVER";
+                    long timestamp = System.currentTimeMillis();
+                    
+                    // Extract timestamp if available
+                    if (parts.length >= 3) {
+                        try {
+                            timestamp = Long.parseLong(parts[2].trim());
+                        } catch (NumberFormatException e) {
+                            logMessage("Invalid timestamp format in database: " + parts[2]);
                         }
-                        
-                        // Extract user ID if available in the content
-                        if (content.contains(";")) {
-                            String[] contentParts = content.split(";", 2);
-                            content = contentParts[0];
-                            if (contentParts.length > 1) {
-                                userId = contentParts[1];
-                            }
-                        }
-                        
-                        // Determine message type
-                        Message.MessageType messageType;
-                        if (typeStr.equals("DRAW") || typeStr.equals("START") || typeStr.equals("END")) {
-                            messageType = Message.MessageType.DRAW;
-                        } else if (typeStr.equals("CLEAR")) {
-                            messageType = Message.MessageType.CLEAR;
-                        } else if (typeStr.equals("TEXT")) {
-                            messageType = Message.MessageType.TEXT;
-                        } else {
-                            // Skip unknown message types
-                            continue;
-                        }
-                        
-                        // Create message and add to appropriate history
-                        Message msg = new Message(messageType, typeStr + ":" + content, userId, timestamp);
-                        
-                        if (messageType == Message.MessageType.TEXT) {
-                            textHistory.add(msg);
-                        } else {
-                            drawingHistory.add(msg);
-                            
-                            // If it's a clear message, remove all drawing actions before this point
-                            if (messageType == Message.MessageType.CLEAR && "CLEAR_ALL".equals(content)) {
-                                drawingHistory.clear();
-                                drawingHistory.add(msg); // Keep the clear message
-                            }
-                        }
-                        
-                        lineCount++;
-                    } catch (Exception e) {
-                        logMessage("Error parsing line from database: " + line + " - " + e.getMessage());
                     }
+                    
+                    // Extract user ID if available in the content
+                    if (content.contains(";")) {
+                        String[] contentParts = content.split(";", 2);
+                        content = contentParts[0];
+                        if (contentParts.length > 1) {
+                            userId = contentParts[1];
+                        }
+                    }
+                    
+                    // Determine message type and create the full message content
+                    Message.MessageType messageType;
+                    String fullContent;
+                    
+                    if (typeStr.equals("START")) {
+                        messageType = Message.MessageType.DRAW;
+                        fullContent = "START:" + content;  // Preserve START prefix
+                    } else if (typeStr.equals("END")) {
+                        messageType = Message.MessageType.DRAW;
+                        fullContent = "END:" + content;    // Preserve END prefix
+                    } else if (typeStr.equals("DRAW")) {
+                        messageType = Message.MessageType.DRAW;
+                        fullContent = "DRAW:" + content;   // Preserve DRAW prefix
+                    } else if (typeStr.equals("CLEAR")) {
+                        messageType = Message.MessageType.CLEAR;
+                        fullContent = content;             // No prefix needed for CLEAR
+                    } else if (typeStr.equals("TEXT")) {
+                        messageType = Message.MessageType.TEXT;
+                        fullContent = content;             // No prefix needed for TEXT
+                    } else {
+                        // Skip unknown message types
+                        continue;
+                    }
+                    
+                    // Create message and add to appropriate history
+                    Message msg = new Message(messageType, fullContent, userId, timestamp);
+                    
+                    if (messageType == Message.MessageType.TEXT) {
+                        textHistory.add(msg);
+                    } else {
+                        drawingHistory.add(msg);
+                        
+                        // If it's a clear message, remove all drawing actions before this point
+                        if (messageType == Message.MessageType.CLEAR && "CLEAR_ALL".equals(content)) {
+                            drawingHistory.clear();
+                            drawingHistory.add(msg); // Keep the clear message
+                        }
+                    }
+                    
+                    lineCount++;
+                } catch (Exception e) {
+                    logMessage("Error parsing line from database: " + line + " - " + e.getMessage());
                 }
-                
-                logMessage("Loaded " + lineCount + " actions from local database");
-                
-            } catch (IOException e) {
-                logMessage("Error reading from local database: " + e.getMessage());
-                e.printStackTrace();
             }
+            
+            logMessage("Loaded " + lineCount + " actions from local database");
+            
+        } catch (IOException e) {
+            logMessage("Error reading from local database: " + e.getMessage());
+            e.printStackTrace();
         }
     }
+}
     
 /**
  * Appends a message to the local database file
@@ -278,33 +289,46 @@ public class Server {
 private void appendToLocalDatabase(Message message) {
     synchronized (databaseLock) {
         try (FileWriter fw = new FileWriter(DATABASE_FILE, true)) {
-            // Extract content and type
+            // Extract content and message type
             String content = message.getContent();
             String type = message.getType().toString();
             
-            // If content starts with the message type (e.g., "DRAW:content" or "TEXT:content")
-            // we need to extract just the actual content
-            if (content.startsWith(type + ":")) {
-                content = content.substring(type.length() + 1);
-            }
+            // Default subtype for DRAW messages is "DRAW"
+            String subType = "DRAW";
             
-            // For DRAW messages, they might have more specific subtypes like START: or END:
+            // For DRAW messages, check for subtypes (START, DRAW, END)
             if (type.equals("DRAW")) {
-                for (String prefix : new String[]{"DRAW:", "START:", "END:"}) {
-                    if (content.startsWith(prefix)) {
-                        content = content.substring(prefix.length());
-                        // Add back the subtype as part of the type
-                        type = prefix.substring(0, prefix.length() - 1); // Remove the colon
-                        break;
-                    }
+                // Check if content starts with one of our subtypes
+                if (content.startsWith("START:")) {
+                    subType = "START";
+                    content = content.substring(6); // Remove "START:"
+                } else if (content.startsWith("END:")) {
+                    subType = "END";
+                    content = content.substring(4); // Remove "END:"
+                } else if (content.startsWith("DRAW:")) {
+                    content = content.substring(5); // Remove "DRAW:"
                 }
+                
+                // If content still has another type prefix, remove it
+                if (content.startsWith(subType + ":")) {
+                    content = content.substring(subType.length() + 1);
+                }
+                
+                // Format entry with subtype for DRAW messages
+                String dbEntry = subType + ":" + content + ":" + message.getTimestamp() + "\n";
+                fw.write(dbEntry);
+                logMessage("Successfully wrote to local database: " + dbEntry.trim());
+            } else {
+                // For TEXT and CLEAR messages
+                if (content.startsWith(type + ":")) {
+                    content = content.substring(type.length() + 1);
+                }
+                
+                // Format entry for non-DRAW messages
+                String dbEntry = type + ":" + content + ":" + message.getTimestamp() + "\n";
+                fw.write(dbEntry);
+                logMessage("Successfully wrote to local database: " + dbEntry.trim());
             }
-            
-            // Format: TYPE:CONTENT:TIMESTAMP
-            String dbEntry = type + ":" + content + ":" + message.getTimestamp() + "\n";
-            fw.write(dbEntry);
-            
-            logMessage("Successfully wrote to local database: " + dbEntry.trim());
         } catch (IOException e) {
             logMessage("Error writing to local database: " + e.getMessage());
             e.printStackTrace();
