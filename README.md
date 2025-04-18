@@ -4,7 +4,7 @@ A Web-Hosted Distributed Collaborative Workspace
 ## Setup Instructions  
 
 1. **Navigate to the Project Directory**  
-   Ensure that you **CD into the SyncSpace directory** before proceeding.
+   Ensure that you **CD into the SyncSpace directory** before proceeding and make sure you have **Maven Java Compiler**.
 
 2. **Build the Project**  
    Run the following command to clean and build the project:  
