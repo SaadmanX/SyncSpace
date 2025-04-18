@@ -72,6 +72,7 @@ public class WhiteboardClient {
         log("DRAWING", message);
     }
 
+    // constructor for brand new whiteboard
     public WhiteboardClient(String serverAddress, int serverPort) {
         try {
             logNetwork("Connecting to server at " + serverAddress + ":" + serverPort);
@@ -97,6 +98,7 @@ public class WhiteboardClient {
         }
     }
 
+    // constructor for already available whiteboard
     public WhiteboardClient(String serverAddress, int serverPort, WhiteboardPanel panel, JFrame fr) {
         try {
             logNetwork("Connecting to server at " + serverAddress + ":" + serverPort + " with existing UI components");
@@ -123,6 +125,7 @@ public class WhiteboardClient {
         }
     }
 
+    // set up all UI elements
     private void initializeUI() {
         logInfo("Initializing UI components");
         frame = new JFrame("SyncSpace");
@@ -154,6 +157,7 @@ public class WhiteboardClient {
         logInfo("UI initialization complete");
     }
 
+    // add event handlers for all mouse actions
     private void setupEventHandlers() {
         logInfo("Setting up event handlers");
         // Add mouse event handlers for drawing
@@ -214,6 +218,7 @@ public class WhiteboardClient {
         logInfo("Event handlers setup complete");
     }
 
+    // send a text message
     private void sendMessage(String message, int count) {
         try {
             logNetwork("Sending text message: " + message);
@@ -242,6 +247,7 @@ public class WhiteboardClient {
         }
     }
 
+    // send a drawing motion
     private void sendDrawAction(String drawData, int count) {
         try {
         logDrawing("Sending draw action: " + drawData);
@@ -274,6 +280,7 @@ public class WhiteboardClient {
         }
     }
 
+    // send a clear command
     private void sendClearAction(int count) {
         try {
             logDrawing("Sending clear canvas action");
@@ -297,6 +304,8 @@ public class WhiteboardClient {
             }
         }
     }
+
+    // start listening for messages from inputstream
     private void startListeningForMessages() {
         logInfo("Starting message listener thread");
         new Thread(() -> {
@@ -388,6 +397,7 @@ public class WhiteboardClient {
         }).start();
     }
 
+    // connect to new leader
     private void handleServerChangeWithNewLeader(String newLeaderIp) {
         logNetwork("Handling server change to new leader: " + newLeaderIp);
         try {
@@ -423,6 +433,7 @@ public class WhiteboardClient {
         }
     }
 
+    // handle disconnection with leader
     private void handleServerDisconnection() {
         logNetwork("Handling server disconnection");
         // Client lost connection to server
@@ -556,7 +567,7 @@ public class WhiteboardClient {
         }
     }
 
-    // Add this method to handle time synchronization messages
+    // handle time sync messages
     private void handleTimeSync(String message) {
         String[] parts = message.split(":");
         if (parts.length < 2) return;
@@ -587,6 +598,7 @@ public class WhiteboardClient {
         }
     }
 
+    // close all connections before shutting down
     private void closeExistingConnections() {
         logNetwork("Closing existing connections");
         try {
@@ -617,6 +629,7 @@ public class WhiteboardClient {
         }
     }
 
+    // handle any incoming messages
     private void handleMessage(Message message) {
         System.out.println(message.toString());
         SwingUtilities.invokeLater(() -> {
@@ -665,6 +678,7 @@ public class WhiteboardClient {
         });
     }
 
+    // handle drawing action from other clients
     private void handleDrawAction(String actionData) {
         logDrawing("Processing draw action: " + actionData);
         
@@ -731,6 +745,7 @@ public class WhiteboardClient {
         }
     }
 
+    
     private void updateFollowerListUI() {
         logInfo("Updating follower list UI with " + followerIps.size() + " followers");
         // This could update a status bar, a label, or add to the chat panel
@@ -740,6 +755,7 @@ public class WhiteboardClient {
         // }
     }
     
+    // register the current client and start connecting to leader
     private void registerUser(String username) {
         this.username = username;
         try {
@@ -757,12 +773,14 @@ public class WhiteboardClient {
         }
     }
 
+    // log and show error
     private void showError(String message) {
         logError("Showing error dialog: " + message, null);
         SwingUtilities.invokeLater(() -> 
             JOptionPane.showMessageDialog(frame, message, "Error", JOptionPane.ERROR_MESSAGE));
     }
 
+    // get updated followerlist and update local list
     private void updateFollowerList(String followerListString) {
         logNetwork("Updating follower list: " + followerListString);
         // Clear the current follower list
