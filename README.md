@@ -1,6 +1,8 @@
 # SyncSpace
 A Web-Hosted Distributed Collaborative Workspace
 
+View project documentation and demos at this link: https://drive.google.com/drive/folders/1dsmjqlLRU0qgKhVYwHoxDGbB6RoUvJnm?usp=sharing
+
 ## Setup Instructions  
 
 1. **Navigate to the Project Directory**  
